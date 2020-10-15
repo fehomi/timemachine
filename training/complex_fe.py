@@ -318,7 +318,8 @@ if __name__ == "__main__":
             )
             vjp_fns.append([])
 
-            seed = np.random.randint(0, np.iinfo(np.int32).max)
+            # seed = np.random.randint(0, np.iinfo(np.int32).max)
+            seed = 0 # zero seed will let worker randomize it.
 
             intg = LangevinIntegrator(
                 float(intg_cfg['temperature']),
