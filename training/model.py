@@ -47,17 +47,17 @@ def simulate(
     for lamb_idx, lamb in enumerate(lambda_schedule):
 
         # endpoint lambda
+        observe_du_dl_freq = 25
+
         if lamb_idx == 0 or lamb_idx == len(lambda_schedule) - 1:
-            observe_du_dl_freq = 5000 # this is analytically zero.
             observe_du_dp_freq = 25
         else:
-            observe_du_dl_freq = 25 # this is analytically zero.
             observe_du_dp_freq = 0
 
         request = service_pb2.SimulateRequest(
             simulation=pickle.dumps(simulation),
             lamb=lamb,
-            prep_steps=5000,
+            prep_steps=1000, # we need to insert quickly to prevent ligand from flying out
             prod_steps=n_steps,
             observe_du_dl_freq=observe_du_dl_freq,
             observe_du_dp_freq=observe_du_dp_freq,
@@ -74,6 +74,7 @@ def simulate(
     du_dls = []
 
     for lamb_idx, (lamb, future) in enumerate(zip(lambda_schedule, simulate_futures)):
+
         response = future.result()
         energies = pickle.loads(response.energies)
 
@@ -93,6 +94,8 @@ def simulate(
         du_dl = pickle.loads(response.avg_du_dls)
         du_dls.append(du_dl)
 
+        print(lamb_idx, lamb, du_dl)
+
         if lamb_idx == 0:
             lambda_0_du_dqs = pickle.loads(response.avg_du_dps)
         elif lamb_idx == len(lambda_schedule) - 1:
@@ -101,7 +104,6 @@ def simulate(
     pred_dG = np.trapz(du_dls, lambda_schedule)
     pred_dG_err = bootstrap.ti_ci(du_dls, lambda_schedule)
 
-    
     grad_dG = []
 
     for source_grad, target_grad in zip(lambda_0_du_dqs, lambda_1_du_dqs):

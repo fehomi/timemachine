@@ -61,6 +61,12 @@ def deserialize_system(
 
             bond_idxs = np.array(bond_idxs, dtype=np.int32)
             bond_params = np.array(bond_params, dtype=np.float64)
+
+            # print("bond_idxs", bond_idxs)
+            # for b in bond_idxs:
+                # print(b)
+            # print("bond_params", bond_params)
+
             bps.append(potentials.HarmonicBond(bond_idxs, precision=precision).bind(bond_params))
 
         if isinstance(force, mm.HarmonicAngleForce):

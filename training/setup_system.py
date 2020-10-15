@@ -2,326 +2,206 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from simtk.openmm import app
-
 from ff.handlers import bonded, nonbonded, openmm_deserializer
-from fe.utils import to_md_units
-
-from timemachine.potentials import jax_utils
-from timemachine.potentials import bonded as bonded_utils
-
-from fe import standard_state
+from timemachine.lib import potentials
 
 
-def find_protein_pocket_atoms(conf, nha, search_radius):
+def combine_coordinates(
+    host_coords,
+    guest_mol):
+
+    host_conf = np.array(host_coords)
+    conformer = guest_mol.GetConformer(0)
+    guest_conf = np.array(conformer.GetPositions(), dtype=np.float64)
+    guest_conf = guest_conf/10 # convert to md_units
+
+    return np.concatenate([host_conf, guest_conf]) # combined geometry
+
+def nonbonded_vjps(
+    guest_q, guest_q_vjp_fn,
+    guest_lj, guest_lj_vjp_fn,
+    host_qlj):
     """
-    Find atoms in the protein that are close to the binding pocket. This simply grabs the
-    protein atoms that are within search_radius nm of each ligand atom.
-
     Parameters
     ----------
-    conf: np.array [N,3]
-        conformation of the ligand
+    guest_q: [L, 1] or [L]
+        Guest charges
 
-    nha: int
-        number of host atoms
+    guest_q_vjp_fn: f: R^L -> R^L_Q
+        Guest vjp_fn for mapping back into handler params
 
-    search_radius: float
-        how far we search into the binding pocket.
+    guest_lj: [L, 2]
+        Guest vdw terms
 
-    """
-    ri = np.expand_dims(conf, axis=0)
-    rj = np.expand_dims(conf, axis=1)
-    dij = jax_utils.distance(ri, rj)
-    pocket_atoms = set()
+    guest_lj_vjp_fn: f: R^(Lx2) -> R^L_LJ
+        Guest vjp_fn for mapping back into handler params
 
-    for l_idx, dists in enumerate(dij[nha:]):
-        nns = np.argsort(dists[:nha])
-        for p_idx in nns:
-            if dists[p_idx] < search_radius:
-                pocket_atoms.add(p_idx)
+    host_qlj: [P, 3]
+        Host params, each triple is (q, sig, eps)
+    
+    Returns
+    -------
+    (P+L, 3)
+        Parameterized system with host atoms at the front.
+
+    (guest_q_vjp_fn, guest_lj_vjp_fn)
+        Chain rule'd vjps to enable combined adjoints to backprop into handler params.
+
+    """ 
+
+    def combine_parameters(guest_q, guest_lj, host_qlj):
+        guest_qlj = jnp.concatenate([
+            jnp.reshape(guest_q, (-1, 1)),
+            jnp.reshape(guest_lj, (-1, 2))
+        ], axis=1)
+
+        return jnp.concatenate([host_qlj, guest_qlj])
+
+    combined_qlj, combined_vjp_fn = jax.vjp(combine_parameters, guest_q, guest_lj, host_qlj)
+
+    def g_q_vjp_fn(x):
+        combined_adjoint = combined_vjp_fn(x)[0]
+        return guest_q_vjp_fn(combined_adjoint)
+
+    def g_lj_vjp_fn(x):
+        combined_adjoint = combined_vjp_fn(x)[1]
+        return guest_lj_vjp_fn(combined_adjoint)
+
+    return combined_qlj, (g_q_vjp_fn, g_lj_vjp_fn)
 
 
-    return list(pocket_atoms)
-
-def concat_with_vjps(p_a, p_b, vjp_a, vjp_b):
-    """
-    Returns the combined parameters p_c, and a vjp_fn that can take in adjoint with shape
-    of p_c and returns adjoints of primitives of p_a and p_b.
-
-    i.e. 
-       vjp_a            
-    A' -----> A 
-                \ vjp_c
-                 +-----> C
-       vjp_b    /
-    B' -----> B
-
-    """
-    p_c, vjp_c = jax.vjp(jnp.concatenate, [p_a, p_b])
-    adjoints = np.random.randn(*p_c.shape)
-
-    def adjoint_fn(p_c):
-        ad_a, ad_b = vjp_c(p_c)[0]
-        if vjp_a is not None:
-            ad_a = vjp_a(ad_a)
-        else:
-            ad_a = None
-
-        if vjp_b is not None:
-            ad_b = vjp_b(ad_b)
-        else:
-            ad_b = None
-
-        return ad_b[0]
-
-    return p_c, adjoint_fn
-
-def create_system(
+def combine_potentials(
+    ff_handlers,
     guest_mol,
-    host_pdb,
-    handlers,
-    restr_search_radius,
-    restr_force_constant,
-    intg_temperature,
-    stage):
+    host_system,
+    precision):
     """
-    Initialize a self-encompassing System object that we can serialize and simulate.
+    This function is responsible for figuring out how to take two separate hamiltonians
+    and combining them into one sensible alchemical system.
 
     Parameters
     ----------
 
-    guest_mol: rdkit.ROMol
-        guest molecule
-        
-    host_pdb: openmm.PDBFile
-        host system from OpenMM
+    ff_handlers: list of forcefield handlers
+        Small molecule forcefield handlers
 
-    handlers: list of timemachine.ops.Gradients
-        forcefield handlers used to parameterize the system
+    guest_mol: Chem.ROMol
+        RDKit molecule
 
-    restr_search_radius: float
-        how far away we search from the ligand to define the binding pocket atoms.
+    host_system: openmm.System
+        Host system to be deserialized
 
-    restr_force_constant: float
-        strength of the harmonic oscillator for the restraint
+    precision: np.float32 or np.float64
+        Numerical precision of the functional form
 
-    intg_temperature: float
-        temperature of the integrator in Kelvin
+    Returns
+    -------
+    tuple
+        Returns a list of lib.potentials objects, combined masses, and a list of
+        their corresponding vjp_fns back into the forcefield
 
-    stage: int (0 or 1)
-        a free energy specific variable that determines how we decouple.
- 
     """
+
+    host_potentials, host_masses = openmm_deserializer.deserialize_system(
+        host_system,
+        precision,
+        cutoff=1.0
+    )
+
+    host_nb_bp = None
+
+    combined_potentials = []
+    combined_vjp_fns = []
+
+    for bp in host_potentials:
+        if isinstance(bp, potentials.Nonbonded):
+            # (ytz): hack to ensure we only have one nonbonded term
+            assert host_nb_bp is None
+            host_nb_bp = bp
+        else:
+            combined_potentials.append(bp)
+            combined_vjp_fns.append([])
 
     guest_masses = np.array([a.GetMass() for a in guest_mol.GetAtoms()], dtype=np.float64)
 
-    amber_ff = app.ForceField('amber99sbildn.xml', 'amber99_obc.xml')
-    host_system = amber_ff.createSystem(
-        host_pdb.topology,
-        nonbondedMethod=app.NoCutoff,
-        constraints=None,
-        rigidWater=False
+    num_guest_atoms = len(guest_masses)
+    num_host_atoms = len(host_masses)
+
+    combined_masses = np.concatenate([host_masses, guest_masses])
+
+
+    for handle in ff_handlers:
+        results = handle.parameterize(guest_mol)
+        if isinstance(handle, bonded.HarmonicBondHandler):
+            bond_idxs, (bond_params, vjp_fn) = results
+            bond_idxs += num_host_atoms
+            combined_potentials.append(potentials.HarmonicBond(bond_idxs, precision=precision).bind(bond_params))
+            combined_vjp_fns.append([(handle, vjp_fn)])
+        elif isinstance(handle, bonded.HarmonicAngleHandler):
+            angle_idxs, (angle_params, vjp_fn) = results
+            angle_idxs += num_host_atoms
+            combined_potentials.append(potentials.HarmonicAngle(angle_idxs, precision=precision).bind(angle_params))
+            combined_vjp_fns.append([(handle, vjp_fn)])
+        elif isinstance(handle, bonded.ProperTorsionHandler):
+            torsion_idxs, (torsion_params, vjp_fn) = results
+            torsion_idxs += num_host_atoms
+            combined_potentials.append(potentials.PeriodicTorsion(torsion_idxs, precision=precision).bind(torsion_params))
+            combined_vjp_fns.append([(handle, vjp_fn)])
+        elif isinstance(handle, bonded.ImproperTorsionHandler):
+            torsion_idxs, (torsion_params, vjp_fn) = results
+            torsion_idxs += num_host_atoms
+            combined_potentials.append(potentials.PeriodicTorsion(torsion_idxs, precision=precision).bind(torsion_params))
+            combined_vjp_fns.append([(handle, vjp_fn)])
+        elif isinstance(handle, nonbonded.AM1CCCHandler):
+            charge_handle = handle
+            guest_charge_params, guest_charge_vjp_fn = results
+        elif isinstance(handle, nonbonded.LennardJonesHandler):
+            guest_lj_params, guest_lj_vjp_fn = results
+            lj_handle = handle
+        else:
+            print("Warning: skipping handler", handle)
+            pass
+
+    # process nonbonded terms
+    combined_nb_params, (charge_vjp_fn, lj_vjp_fn) = nonbonded_vjps(
+        guest_charge_params, guest_charge_vjp_fn,
+        guest_lj_params, guest_lj_vjp_fn,
+        host_nb_bp.params
     )
 
-    host_fns, host_masses = openmm_deserializer.deserialize_system(host_system)
+    # these vjp_fns take in adjoints of combined_params and returns derivatives
+    # appropriate to the underlying handler
+    combined_vjp_fns.append([(charge_handle, charge_vjp_fn), (lj_handle, lj_vjp_fn)])
 
-    num_host_atoms = len(host_masses)
-    num_guest_atoms = guest_mol.GetNumAtoms()
-
-    # Name, Args, vjp_fn
-    final_gradients = []
-
-    for item in host_fns: 
-
-        if item[0] == 'LennardJones':
-            host_lj_params = item[1]
-        elif item[0] == 'Charges':
-            host_charge_params = item[1]
-        elif item[0] == 'GBSA':
-            host_gb_params = item[1][0]
-            host_gb_props = item[1][1:]
-        elif item[0] == 'Exclusions':
-            host_exclusions = item[1]
-        else:
-            final_gradients.append((item[0], item[1]))
-
-    guest_exclusion_idxs, guest_scales = nonbonded.generate_exclusion_idxs(
+    # tbd change scale 14 for electrostatics
+    guest_exclusion_idxs, guest_scale_factors = nonbonded.generate_exclusion_idxs(
         guest_mol,
         scale12=1.0,
         scale13=1.0,
         scale14=0.5
     )
 
-    guest_exclusion_idxs += num_host_atoms
-    guest_lj_exclusion_scales = guest_scales
-    guest_charge_exclusion_scales = guest_scales
+    # allow the ligand to be alchemically decoupled
+    # a value of one indicates that we allow the atom to be adjusted by the lambda value
+    guest_lambda_offset_idxs = np.ones(len(guest_masses), dtype=np.int32) 
 
-    host_exclusion_idxs = host_exclusions[0]
-    host_lj_exclusion_scales = host_exclusions[1]
-    host_charge_exclusion_scales = host_exclusions[2]
+    # use same scale factors until we modify 1-4s for electrostatics
+    guest_scale_factors = np.stack([guest_scale_factors, guest_scale_factors], axis=1)
 
-    combined_exclusion_idxs = np.concatenate([host_exclusion_idxs, guest_exclusion_idxs])
-    combined_lj_exclusion_scales = np.concatenate([host_lj_exclusion_scales, guest_lj_exclusion_scales])
-    combined_charge_exclusion_scales = np.concatenate([host_charge_exclusion_scales, guest_charge_exclusion_scales])
+    combined_lambda_offset_idxs = np.concatenate([host_nb_bp.get_lambda_offset_idxs(), guest_lambda_offset_idxs])
+    combined_exclusion_idxs = np.concatenate([host_nb_bp.get_exclusion_idxs(), guest_exclusion_idxs + num_host_atoms])
+    combined_scales = np.concatenate([host_nb_bp.get_scale_factors(), guest_scale_factors])
+    combined_beta = 2.0
+    combined_cutoff = 1.0 # nonbonded cutoff
+    combined_nb_params = np.asarray(combined_nb_params).copy()
 
-
-    # We build up a map of handles to a corresponding vjp_fn that takes in adjoints of output parameters
-    # for nonbonded terms, the vjp_fn has been modified to take in combined parameters
-    handler_vjp_fns = {}
-
-    for handle in handlers:
-        results = handle.parameterize(guest_mol)
-
-        if isinstance(handle, bonded.HarmonicBondHandler):
-            bond_idxs, (bond_params, handler_vjp_fn) = results
-            bond_idxs += num_host_atoms
-            final_gradients.append(("HarmonicBond", (bond_idxs, bond_params)))
-        elif isinstance(handle, bonded.HarmonicAngleHandler):
-            angle_idxs, (angle_params, handler_vjp_fn) = results
-            angle_idxs += num_host_atoms
-            final_gradients.append(("HarmonicAngle", (angle_idxs, angle_params)))
-        elif isinstance(handle, bonded.ProperTorsionHandler):
-            torsion_idxs, (torsion_params, handler_vjp_fn) = results
-            torsion_idxs += num_host_atoms
-            final_gradients.append(("PeriodicTorsion", (torsion_idxs, torsion_params)))
-        elif isinstance(handle, bonded.ImproperTorsionHandler):
-            torsion_idxs, (torsion_params, handler_vjp_fn) = results
-            torsion_idxs += num_host_atoms
-            final_gradients.append(("PeriodicTorsion", (torsion_idxs, torsion_params)))
-        elif isinstance(handle, nonbonded.LennardJonesHandler):
-            guest_lj_params, guest_lj_vjp_fn = results
-            combined_lj_params, handler_vjp_fn = concat_with_vjps(
-                host_lj_params,
-                guest_lj_params,
-                None,
-                guest_lj_vjp_fn
-            )
-        elif isinstance(handle, nonbonded.SimpleChargeHandler):
-            guest_charge_params, guest_charge_vjp_fn = results
-            combined_charge_params, handler_vjp_fn = concat_with_vjps(
-                host_charge_params,
-                guest_charge_params,
-                None,
-                guest_charge_vjp_fn
-            )
-        elif isinstance(handle, nonbonded.GBSAHandler):
-            guest_gb_params, guest_gb_vjp_fn = results
-            combined_gb_params, handler_vjp_fn = concat_with_vjps(
-                host_gb_params,
-                guest_gb_params,
-                None,
-                guest_gb_vjp_fn
-            )
-        elif isinstance(handle, nonbonded.AM1BCCHandler):
-            guest_charge_params, guest_charge_vjp_fn = results
-            combined_charge_params, handler_vjp_fn = concat_with_vjps(
-                host_charge_params,
-                guest_charge_params,
-                None,
-                guest_charge_vjp_fn
-            )
-        elif isinstance(handle, nonbonded.AM1CCCHandler):
-            guest_charge_params, guest_charge_vjp_fn = results
-            combined_charge_params, handler_vjp_fn = concat_with_vjps(
-                host_charge_params,
-                guest_charge_params,
-                None,
-                guest_charge_vjp_fn
-            )
-        else:
-            raise Exception("Unknown Handler", handle)
-
-        handler_vjp_fns[handle] = handler_vjp_fn
-
-    host_conf = []
-    for x,y,z in host_pdb.positions:
-        host_conf.append([to_md_units(x),to_md_units(y),to_md_units(z)])
-    host_conf = np.array(host_conf)
-
-    conformer = guest_mol.GetConformer(0)
-    mol_a_conf = np.array(conformer.GetPositions(), dtype=np.float64)
-    mol_a_conf = mol_a_conf/10 # convert to md_units
-
-    x0 = np.concatenate([host_conf, mol_a_conf]) # combined geometry
-    v0 = np.zeros_like(x0)
-
-    pocket_atoms = find_protein_pocket_atoms(x0, num_host_atoms, restr_search_radius)
-
-    N_C = num_host_atoms + num_guest_atoms
-    N_A = num_host_atoms
-
-    cutoff = 100000.0
-
-    if stage == 0:
-        combined_lambda_plane_idxs = np.zeros(N_C, dtype=np.int32)
-        combined_lambda_offset_idxs = np.zeros(N_C, dtype=np.int32)
-    elif stage == 1:
-        combined_lambda_plane_idxs = np.zeros(N_C, dtype=np.int32)
-        combined_lambda_offset_idxs = np.zeros(N_C, dtype=np.int32)
-        combined_lambda_offset_idxs[num_host_atoms:] = 1
-    else:
-        assert 0
-
-    final_gradients.append((
-        'Nonbonded', (
-        np.asarray(combined_charge_params),
-        np.asarray(combined_lj_params),
+    combined_potentials.append(potentials.Nonbonded(
         combined_exclusion_idxs,
-        combined_charge_exclusion_scales,
-        combined_lj_exclusion_scales,
-        combined_lambda_plane_idxs,
+        combined_scales,
         combined_lambda_offset_idxs,
-        cutoff
-        )
-    ))
+        combined_beta,
+        combined_cutoff,
+        precision=precision).bind(combined_nb_params))
 
-    final_gradients.append((
-        'GBSA', (
-        np.asarray(combined_charge_params),
-        np.asarray(combined_gb_params),
-        combined_lambda_plane_idxs,
-        combined_lambda_offset_idxs,
-        *host_gb_props,
-        cutoff,
-        cutoff
-        )
-    ))
 
-    ligand_idxs = np.arange(N_A, N_C, dtype=np.int32)
-
-    # restraints
-    if stage == 0:
-        lamb_flag = 1
-        lamb_offset = 0
-    if stage == 1:
-        lamb_flag = 0
-        lamb_offset = 1
-
-    # unweighted center of mass restraints
-    avg_xi = np.mean(x0[ligand_idxs], axis=0)
-    avg_xj = np.mean(x0[pocket_atoms], axis=0)
-    ctr_dij = np.sqrt(np.sum((avg_xi - avg_xj)**2))
-
-    combined_masses = np.concatenate([host_masses, guest_masses])
-
-    # restraints
-    final_gradients.append((
-        'CentroidRestraint', (
-            ligand_idxs,
-            pocket_atoms,
-            combined_masses,
-            restr_force_constant,
-            ctr_dij,
-            lamb_flag,
-            lamb_offset
-        )
-    ))
-
-    ssc = standard_state.harmonic_com_ssc(
-        restr_force_constant,
-        ctr_dij,
-        intg_temperature
-    )
-
-    return x0, combined_masses, ssc, final_gradients, handler_vjp_fns
+    return combined_potentials, combined_masses, combined_vjp_fns

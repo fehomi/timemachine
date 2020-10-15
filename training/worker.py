@@ -17,6 +17,8 @@ from threading import Lock
 
 from timemachine.lib import custom_ops
 
+# from simtk.openmm import app # debug use for model writing
+
 class Worker(service_pb2_grpc.WorkerServicer):
 
     def Simulate(self, request, context):
@@ -35,6 +37,10 @@ class Worker(service_pb2_grpc.WorkerServicer):
 
         for potential in simulation.potentials:
             bps.append(potential.bound_impl()) # get the bound implementation
+
+        # reseed if the seed is zero.
+        if simulation.integrator.seed == 0:
+            simulation.integrator.seed = np.random.randint(0, np.iinfo(np.int32).max)
 
         intg = simulation.integrator.impl()
 
@@ -68,17 +74,29 @@ class Worker(service_pb2_grpc.WorkerServicer):
                 du_dps.append(du_dp_obs)
 
         # dynamics
-        for step in range(request.prod_steps):
-            if step % 100 == 0:
-                u = ctxt.get_u_t()
-                energies.append(u)
+        # model = app.PDBFile("holy_debug.pdb")
+        with open("debug_minimize_"+str(simulation.integrator.seed)+".pdb", "w") as out_file:
+            # app.PDBFile.writeHeader(model.topology, out_file)
 
-            if request.n_frames > 0:
-                interval = max(1, request.prod_steps//request.n_frames)
-                if step % interval == 0:
-                    frames.append(ctxt.get_x_t())
+            for step in range(request.prod_steps):
+                if step % 100 == 0:
+                    u = ctxt.get_u_t()
+                    energies.append(u)
 
-            ctxt.step(lamb)
+                    # if step % 500 == 0:
+                    #     _, du_dl, _ = bps[-1].execute(ctxt.get_x_t(), simulation.box, lamb)
+                    #     if abs(du_dl) > 5000:
+                    #         print("bad du_dl found")
+                    #         app.PDBFile.writeModel(model.topology, ctxt.get_x_t()*10, out_file, step)
+
+                if request.n_frames > 0:
+                    interval = max(1, request.prod_steps//request.n_frames)
+                    if step % interval == 0:
+                        frames.append(ctxt.get_x_t())
+
+                ctxt.step(lamb)
+
+            # app.PDBFile.writeFooter(model.topology, out_file)
 
         frames = np.array(frames)
 
