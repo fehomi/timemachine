@@ -252,12 +252,16 @@ if __name__ == "__main__":
             fh.write(epoch_params)
 
         all_data = []
+        # fix m
         test_items = [(x, True) for x in test_dataset.data]
-        train_dataset.shuffle()
-        train_items = [(x, False) for x in train_dataset.data]
+        # (ytz): re-enable me
+        # train_dataset.shuffle()
+        train_items = [(x, True) for x in train_dataset.data]
 
         all_data.extend(test_items)
         all_data.extend(train_items)
+
+        all_data = all_data[:1]
 
         for idx, ((mol, label_dG, label_err), inference) in enumerate(all_data):
 
@@ -380,7 +384,7 @@ if __name__ == "__main__":
                 with open(os.path.join(epoch_dir, "checkpoint_params_idx_"+str(idx)+"_mol_"+mol.GetProp("_Name")+".py"), 'w') as fh:
                     fh.write(epoch_params)
 
-            assert 0
+            # assert 0
             # except Exception as e:
             #     import traceback
             #     print("Exception in mol", mol.GetProp("_Name"), Chem.MolToSmiles(mol), e)
