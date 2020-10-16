@@ -59,7 +59,7 @@ class Worker(service_pb2_grpc.WorkerServicer):
             np.linspace(lamb, lamb, request.prep_steps)  # equilibration
         ])
 
-        for step, minimize_lamb in enumerate(np.linspace(1.0, lamb, request.prep_steps)):
+        for step, minimize_lamb in enumerate(minimize_schedule):
             ctxt.step(minimize_lamb)
 
         _, du_dl, _ = bps[-2].execute(ctxt.get_x_t(), simulation.box, lamb)
