@@ -57,7 +57,7 @@ def simulate(
         request = service_pb2.SimulateRequest(
             simulation=pickle.dumps(simulation),
             lamb=lamb,
-            prep_steps=1000, # we need to insert quickly to prevent ligand from flying out
+            prep_steps=10000, # we need to insert quickly to prevent ligand from flying out
             prod_steps=n_steps,
             observe_du_dl_freq=observe_du_dl_freq,
             observe_du_dp_freq=observe_du_dp_freq,
