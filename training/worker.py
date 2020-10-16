@@ -17,7 +17,7 @@ from threading import Lock
 
 from timemachine.lib import custom_ops
 
-# from simtk.openmm import app # debug use for model writing
+from simtk.openmm import app # debug use for model writing
 
 class Worker(service_pb2_grpc.WorkerServicer):
 
@@ -54,8 +54,23 @@ class Worker(service_pb2_grpc.WorkerServicer):
 
         lamb = request.lamb
 
+        minimize_schedule = np.concatenate([
+            np.linspace(0.5, lamb, 500),                 # insertion
+            np.linspace(lamb, lamb, request.prep_steps)  # equilibration
+        ])
+
         for step, minimize_lamb in enumerate(np.linspace(1.0, lamb, request.prep_steps)):
             ctxt.step(minimize_lamb)
+
+        _, du_dl, _ = bps[-2].execute(ctxt.get_x_t(), simulation.box, lamb)
+
+        if abs(du_dl) > 5000:
+            with open("bad_debug_minimize_"+str(simulation.integrator.seed)+".pdb", "w") as out_file:
+                print("bad minimize du_dl found for seed", simulation.integrator.seed)
+                model = app.PDBFile("holy_debug.pdb")
+                app.PDBFile.writeHeader(model.topology, out_file)
+                app.PDBFile.writeModel(model.topology, ctxt.get_x_t()*10, out_file, step)
+                app.PDBFile.writeFooter(model.topology, out_file)
 
         energies = []
         frames = []
@@ -75,28 +90,30 @@ class Worker(service_pb2_grpc.WorkerServicer):
 
         # dynamics
         # model = app.PDBFile("holy_debug.pdb")
-        with open("debug_minimize_"+str(simulation.integrator.seed)+".pdb", "w") as out_file:
+        # with open("debug_dynamics_"+str(simulation.integrator.seed)+".pdb", "w") as out_file:
             # app.PDBFile.writeHeader(model.topology, out_file)
 
-            for step in range(request.prod_steps):
-                if step % 100 == 0:
-                    u = ctxt.get_u_t()
-                    energies.append(u)
+        for step in range(request.prod_steps):
+            if step % 100 == 0:
+                u = ctxt.get_u_t()
+                energies.append(u)
 
-                    # if step % 500 == 0:
-                    #     _, du_dl, _ = bps[-1].execute(ctxt.get_x_t(), simulation.box, lamb)
-                    #     if abs(du_dl) > 5000:
-                    #         print("bad du_dl found")
-                    #         app.PDBFile.writeModel(model.topology, ctxt.get_x_t()*10, out_file, step)
+            if request.n_frames > 0:
+                interval = max(1, request.prod_steps//request.n_frames)
+                if step % interval == 0:
+                    frames.append(ctxt.get_x_t())
 
-                if request.n_frames > 0:
-                    interval = max(1, request.prod_steps//request.n_frames)
-                    if step % interval == 0:
-                        frames.append(ctxt.get_x_t())
+            ctxt.step(lamb)
 
-                ctxt.step(lamb)
+        # app.PDBFile.writeFooter(model.topology, out_file)
 
-            # app.PDBFile.writeFooter(model.topology, out_file)
+
+        # if step % 500 == 0:
+        # _, du_dl, _ = bps[-1].execute(ctxt.get_x_t(), simulation.box, lamb)
+        # if abs(du_dl) > 5000:
+            # print("bad final du_dl found for seed", simulation.integrator.seed)
+            # app.PDBFile.writeModel(model.topology, ctxt.get_x_t()*10, out_file, step)
+
 
         frames = np.array(frames)
 
@@ -104,6 +121,12 @@ class Worker(service_pb2_grpc.WorkerServicer):
             avg_du_dls = du_dl_obs.avg_du_dl()
         else:
             avg_du_dls = None
+
+        # if abs(avg_du_dls) > 5000:
+            # print("bad avg_du_dl found for seed", simulation.integrator.seed)
+            # app.PDBFile.writeModel(model.topology, ctxt.get_x_t()*10, out_file, step)
+
+
 
         if request.observe_du_dp_freq > 0:
             avg_du_dps = []

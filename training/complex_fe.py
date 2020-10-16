@@ -156,7 +156,7 @@ if __name__ == "__main__":
     for guest_idx, mol in enumerate(suppl):
         # label_dG = -4.184*float(mol.GetProp(general_cfg['dG'])) # in kcal/mol
         # label_err = 4.184*float(mol.GetProp(general_cfg['dG_err'])) # errs are positive!
-        label_dG = 0
+        label_dG = 80
         label_err = 0
         data.append((mol, label_dG, label_err))
 
@@ -363,7 +363,7 @@ if __name__ == "__main__":
             print(prefix, "mol", mol.GetProp("_Name"), "loss {:.2f}".format(loss), "pred_dG {:.2f}".format(pred_dG), "label_dG {:.2f}".format(label_dG), "label err {:.2f}".format(label_err), "time {:.2f}".format(time.time() - start_time), "smiles:", Chem.MolToSmiles(mol))
 
             # update ff parameters
-            if not inference:
+            if not inference and pred_dG > 0:
 
                 loss_grad = np.sign(pred_dG - label_dG)
                 assert len(grad_dG) == len(vjp_fns)
