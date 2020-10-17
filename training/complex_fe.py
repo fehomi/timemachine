@@ -473,7 +473,7 @@ if __name__ == "__main__":
                 plt.plot(lambda_schedule, du_dls)
                 plt.ylabel("du_dlambda")
                 plt.xlabel("lambda")
-                plt.savefig(os.path.join(epoch_dir, "ti_mol_"+mol.GetProp("_Name")))
+                plt.savefig(os.path.join(epoch_dir, str(stage)+"_ti_mol_"+mol.GetProp("_Name")))
                 plt.clf()
 
             print(stage_dGs, ssc)
