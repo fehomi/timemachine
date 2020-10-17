@@ -79,27 +79,8 @@ def add_restraints(combined_coords, ligand_idxs, pocket_idxs, temperature):
 
     return restr, ssc
 
-    # .bind(np.array([], dtype=np.float64))
-
-def flatten_grads(stage_grads, stage_vjp_fns):
-
-    assert len(stage_grads) == len(stage_vjp_fns)
-
-    handle_and_grads = {}
-
-    for stage, (grads, vjp_fns) in enumerate(zip(stage_grads, stage_vjp_fns)):
-        for grad, handle_and_vjp_fns in zip(grads, vjp_fns):
-            
-            dp = vjp_fn(grad)
-            if handle not in handle_and_grads:
-                handle_and_grads[handle] = dp
-            else:
-                handle_and_grads[handle] += dp
-
-    return handle_and_grads
-
-            # handle_and_grads
-
+def convert_uIC50_to_kJ_per_mole(amount_in_uM):
+    return 0.593*np.log(amount_in_uM*1e-6)*4.18
 
 # (ytz): need to add box to this
 def find_protein_pocket_atoms(conf, nha, nwa, search_radius):
@@ -198,11 +179,13 @@ if __name__ == "__main__":
     data = []
 
     for guest_idx, mol in enumerate(suppl):
-        # label_dG = -4.184*float(mol.GetProp(general_cfg['dG'])) # in kcal/mol
+        # label_dG = -4.184*float(mol.GetProp(general_cfg['bind_prop'])) # in kcal/mol
+        label_dG = -1*convert_uIC50_to_kJ_per_mole(float(mol.GetProp(general_cfg['bind_prop']))) # in kcal/mol
         # label_err = 4.184*float(mol.GetProp(general_cfg['dG_err'])) # errs are positive!
-        label_dG = 80
+        # label_dG = 80
         label_err = 0
         data.append((mol, label_dG, label_err))
+
 
     full_dataset = dataset.Dataset(data)
     train_frac = float(general_cfg['train_frac'])
