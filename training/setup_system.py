@@ -74,6 +74,7 @@ def combine_potentials(
     ff_handlers,
     guest_mol,
     host_system,
+    guest_lambda_offset_idxs,
     precision):
     """
     This function is responsible for figuring out how to take two separate hamiltonians
@@ -183,7 +184,7 @@ def combine_potentials(
 
     # allow the ligand to be alchemically decoupled
     # a value of one indicates that we allow the atom to be adjusted by the lambda value
-    guest_lambda_offset_idxs = np.ones(len(guest_masses), dtype=np.int32) 
+
 
     # use same scale factors until we modify 1-4s for electrostatics
     guest_scale_factors = np.stack([guest_scale_factors, guest_scale_factors], axis=1)

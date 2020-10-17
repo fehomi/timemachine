@@ -42,7 +42,7 @@ def prep_system(box_width):
 
 
     # pdb_str = io.StringIO()
-    fname = "debug.pdb"
+    fname = "debug_water.pdb"
 
     fhandle = open(fname, "w")
 

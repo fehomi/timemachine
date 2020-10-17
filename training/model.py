@@ -101,13 +101,13 @@ def simulate(
         elif lamb_idx == len(lambda_schedule) - 1:
             lambda_1_du_dqs = pickle.loads(response.avg_du_dps)
 
-    pred_dG = np.trapz(du_dls, lambda_schedule)
-    pred_dG_err = bootstrap.ti_ci(du_dls, lambda_schedule)
+    # pred_dG = np.trapz(du_dls, lambda_schedule)
+    # pred_dG_err = bootstrap.ti_ci(du_dls, lambda_schedule)
 
-    grad_dG = []
+    grad_dGs = []
 
     for source_grad, target_grad in zip(lambda_0_du_dqs, lambda_1_du_dqs):
-        grad_dG.append(target_grad - source_grad)
+        grad_dGs.append(target_grad - source_grad)
 
-
-    return (pred_dG, pred_dG_err), grad_dG, du_dls
+    return du_dls, grad_dGs
+    # return (pred_dG, pred_dG_err), grad_dG, du_dls
