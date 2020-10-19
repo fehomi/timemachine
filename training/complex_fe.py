@@ -287,7 +287,9 @@ if __name__ == "__main__":
         all_data.extend(train_items)
 
         # debug
-        all_data = all_data[:1]
+        # all_data = all_data[:1]
+
+        reorg_dG = float(general_cfg['reorg_dG'])
 
         for idx, ((mol, label_dG, label_err), inference) in enumerate(all_data):
 
@@ -479,7 +481,7 @@ if __name__ == "__main__":
                 plt.clf()
 
             print(stage_dGs, ssc)
-            pred_dG = np.sum(stage_dGs) - ssc
+            pred_dG = np.sum(stage_dGs) - ssc - reorg_dG
 
             loss = np.abs(pred_dG - label_dG)
 
