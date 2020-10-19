@@ -278,7 +278,7 @@ if __name__ == "__main__":
         all_data = []
 
         # fix m
-        test_items = [(x, False) for x in test_dataset.data]
+        test_items = [(x, True) for x in test_dataset.data]
         # (ytz): re-enable me
         train_dataset.shuffle()
         train_items = [(x, False) for x in train_dataset.data]
