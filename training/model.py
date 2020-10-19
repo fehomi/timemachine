@@ -12,6 +12,9 @@ def simulate(
     simulation,
     n_steps,
     lambda_schedule,
+    num_host_atoms,
+    min_lamb_start,
+    min_lamb_end,
     stubs):
     """
     Compute the hydration free energy of a simulation system.
@@ -27,6 +30,11 @@ def simulate(
 
     lambda_schedule: array, np.float64
         The lambda windows we're interested in simulating over.
+
+    min_lamb_start: what lambda window we start minimizing at
+
+    min_lamb_end: what lambda window we end minimizing at, if None
+        then this will default to the lambda window itself
 
     stubs: grpc.service
         gRPC services that will be used to run each lambda window
@@ -54,6 +62,13 @@ def simulate(
         else:
             observe_du_dp_freq = 0
 
+        if min_lamb_end is None:
+            lamb_end = lamb
+        else:
+            lamb_end = min_lamb_end
+
+        # print("??????", min_lamb_start, lamb_end)
+
         request = service_pb2.SimulateRequest(
             simulation=pickle.dumps(simulation),
             lamb=lamb,
@@ -63,6 +78,10 @@ def simulate(
             observe_du_dp_freq=observe_du_dp_freq,
             precision="single",
             n_frames=n_frames,
+            num_host_atoms=num_host_atoms,
+            min_lamb_start=min_lamb_start,
+            min_lamb_end=lamb_end,
+            min_steps=500,
         )
 
         stub = stubs[lamb_idx % len(stubs)]

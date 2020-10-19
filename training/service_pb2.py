@@ -19,7 +19,7 @@ DESCRIPTOR = _descriptor.FileDescriptor(
   syntax='proto3',
   serialized_options=None,
   create_key=_descriptor._internal_create_key,
-  serialized_pb=b'\n\rservice.proto\"\x0e\n\x0c\x45mptyMessage\"\xb8\x01\n\x0fSimulateRequest\x12\x12\n\nsimulation\x18\x01 \x01(\x0c\x12\x0c\n\x04lamb\x18\x02 \x01(\x01\x12\x12\n\nprep_steps\x18\x03 \x01(\x05\x12\x12\n\nprod_steps\x18\x04 \x01(\x05\x12\x1a\n\x12observe_du_dl_freq\x18\x05 \x01(\x05\x12\x1a\n\x12observe_du_dp_freq\x18\x06 \x01(\x05\x12\x11\n\tprecision\x18\x07 \x01(\t\x12\x10\n\x08n_frames\x18\x08 \x01(\x05\"Y\n\rSimulateReply\x12\x12\n\navg_du_dls\x18\x01 \x01(\x0c\x12\x12\n\navg_du_dps\x18\x02 \x01(\x0c\x12\x10\n\x08\x65nergies\x18\x03 \x01(\x0c\x12\x0e\n\x06\x66rames\x18\x04 \x01(\x0c\x32\x38\n\x06Worker\x12.\n\x08Simulate\x12\x10.SimulateRequest\x1a\x0e.SimulateReply\"\x00\x62\x06proto3'
+  serialized_pb=b'\n\rservice.proto\"\x0e\n\x0c\x45mptyMessage\"\x91\x02\n\x0fSimulateRequest\x12\x12\n\nsimulation\x18\x01 \x01(\x0c\x12\x0c\n\x04lamb\x18\x02 \x01(\x01\x12\x12\n\nprep_steps\x18\x03 \x01(\x05\x12\x12\n\nprod_steps\x18\x04 \x01(\x05\x12\x1a\n\x12observe_du_dl_freq\x18\x05 \x01(\x05\x12\x1a\n\x12observe_du_dp_freq\x18\x06 \x01(\x05\x12\x11\n\tprecision\x18\x07 \x01(\t\x12\x10\n\x08n_frames\x18\x08 \x01(\x05\x12\x16\n\x0enum_host_atoms\x18\t \x01(\x05\x12\x16\n\x0emin_lamb_start\x18\n \x01(\x01\x12\x14\n\x0cmin_lamb_end\x18\x0b \x01(\x01\x12\x11\n\tmin_steps\x18\x0c \x01(\x05\"Y\n\rSimulateReply\x12\x12\n\navg_du_dls\x18\x01 \x01(\x0c\x12\x12\n\navg_du_dps\x18\x02 \x01(\x0c\x12\x10\n\x08\x65nergies\x18\x03 \x01(\x0c\x12\x0e\n\x06\x66rames\x18\x04 \x01(\x0c\x32\x38\n\x06Worker\x12.\n\x08Simulate\x12\x10.SimulateRequest\x1a\x0e.SimulateReply\"\x00\x62\x06proto3'
 )
 
 
@@ -114,6 +114,34 @@ _SIMULATEREQUEST = _descriptor.Descriptor(
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
+    _descriptor.FieldDescriptor(
+      name='num_host_atoms', full_name='SimulateRequest.num_host_atoms', index=8,
+      number=9, type=5, cpp_type=1, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
+    _descriptor.FieldDescriptor(
+      name='min_lamb_start', full_name='SimulateRequest.min_lamb_start', index=9,
+      number=10, type=1, cpp_type=5, label=1,
+      has_default_value=False, default_value=float(0),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
+    _descriptor.FieldDescriptor(
+      name='min_lamb_end', full_name='SimulateRequest.min_lamb_end', index=10,
+      number=11, type=1, cpp_type=5, label=1,
+      has_default_value=False, default_value=float(0),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
+    _descriptor.FieldDescriptor(
+      name='min_steps', full_name='SimulateRequest.min_steps', index=11,
+      number=12, type=5, cpp_type=1, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
   ],
   extensions=[
   ],
@@ -127,7 +155,7 @@ _SIMULATEREQUEST = _descriptor.Descriptor(
   oneofs=[
   ],
   serialized_start=34,
-  serialized_end=218,
+  serialized_end=307,
 )
 
 
@@ -179,8 +207,8 @@ _SIMULATEREPLY = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=220,
-  serialized_end=309,
+  serialized_start=309,
+  serialized_end=398,
 )
 
 DESCRIPTOR.message_types_by_name['EmptyMessage'] = _EMPTYMESSAGE
@@ -218,8 +246,8 @@ _WORKER = _descriptor.ServiceDescriptor(
   index=0,
   serialized_options=None,
   create_key=_descriptor._internal_create_key,
-  serialized_start=311,
-  serialized_end=367,
+  serialized_start=400,
+  serialized_end=456,
   methods=[
   _descriptor.MethodDescriptor(
     name='Simulate',

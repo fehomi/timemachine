@@ -18,9 +18,13 @@ def build_protein_system(host_pdbfile):
     padding = 1.0
     box_lengths = np.amax(host_coords, axis=0) - np.amin(host_coords, axis=0)
     box_lengths = box_lengths.value_in_unit_system(unit.md_unit_system)
+
+    # print(box_lengths)
+    # assert 0
     box_lengths = box_lengths+padding
     box = np.eye(3, dtype=np.float64)*box_lengths
-
+    # print(box)
+    # assert 0
     modeller.addSolvent(host_ff, boxSize=np.diag(box)*unit.nanometers, neutralize=False)
     solvated_host_coords = strip_units(modeller.positions)
 
@@ -34,6 +38,13 @@ def build_protein_system(host_pdbfile):
         constraints=None,
         rigidWater=False
     )
+
+    # fh = open("debug_nic.pdb", "w")
+    # app.PDBFile.writeHeader(modeller.topology, fh)
+    # app.PDBFile.writeModel(modeller.topology, modeller.positions, fh, 0)
+    # app.PDBFile.writeFooter(modeller.topology)
+    # print("wrote pdb")
+
 
     return solvated_host_system, solvated_host_coords, nwa, nha, box
 

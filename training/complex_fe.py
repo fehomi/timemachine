@@ -83,7 +83,7 @@ def convert_uIC50_to_kJ_per_mole(amount_in_uM):
     return 0.593*np.log(amount_in_uM*1e-6)*4.18
 
 # (ytz): need to add box to this
-def find_protein_pocket_atoms(conf, nha, nwa, search_radius):
+def find_protein_pocket_atoms(conf, box, nha, nwa, search_radius):
     """
     Find atoms in the protein that are close to the binding pocket. This simply grabs the
     protein atoms that are within search_radius nm of each ligand atom.
@@ -100,6 +100,9 @@ def find_protein_pocket_atoms(conf, nha, nwa, search_radius):
     conf: np.array [N,3]
         system coordinates
 
+    box: np.array [N,3]
+        periodic box
+
     nha: int
         number of host atoms
 
@@ -111,6 +114,37 @@ def find_protein_pocket_atoms(conf, nha, nwa, search_radius):
 
     """
     # (ytz): this is horribly slow and can be made much faster
+    rl = np.expand_dims(conf[nha+nwa:], axis=1) # ligand atoms
+    rp = np.expand_dims(conf[:nha], axis=0) # protein_atoms
+
+    # rl = np.expand_dims(rl, axis=0)
+    # rp = np.expand_dims(rp, axis=1)
+    # (YTZ) ADD PBC SUPPORT FOR RESTRAINT FINDING
+    diff = rl - rp
+
+    # apply PBCs
+    # for d in range(3):
+        # diff -= box[d]*np.floor(np.expand_dims(diff[...,d], axis=-1)/box[d][d]+0.5)
+
+    # ligand x protein
+    dij = np.sqrt(np.sum(np.power(diff, 2), axis=-1))
+
+    pocket_atoms = set()
+
+    for dists in dij:
+        for p_idx, d in enumerate(dists):
+            # print(d, search_radius)
+            if d < search_radius:
+                pocket_atoms.add(p_idx)
+
+    # print("pocket_atoms", pocket_atoms)
+
+    return list(pocket_atoms)
+        # nns = np.argsort(dists)
+        # for p_idx in nns:
+            # if dists[p_idx] < search_radius
+
+    assert 0
 
     ri = np.expand_dims(conf, axis=0)
     rj = np.expand_dims(conf, axis=1)
@@ -180,7 +214,8 @@ if __name__ == "__main__":
 
     for guest_idx, mol in enumerate(suppl):
         # label_dG = -4.184*float(mol.GetProp(general_cfg['bind_prop'])) # in kcal/mol
-        label_dG = -1*convert_uIC50_to_kJ_per_mole(float(mol.GetProp(general_cfg['bind_prop']))) # in kcal/mol
+        # label_dG = -1*convert_uIC50_to_kJ_per_mole(float(mol.GetProp(general_cfg['bind_prop'])))
+        label_dG = -1*float(mol.GetProp(general_cfg['bind_prop']))*4.18
         # label_err = 4.184*float(mol.GetProp(general_cfg['dG_err'])) # errs are positive!
         # label_dG = 80
         label_err = 0
@@ -199,65 +234,16 @@ if __name__ == "__main__":
     ff_handlers = deserialize_handlers(ff_raw)
 
     protein_system, protein_coords, nwa, nha, protein_box = build_system.build_protein_system(general_cfg['protein_pdb'])
+
+
     water_system, water_coords, water_box = build_system.build_water_system(box_width=3.0)
-
-    # assert 0
-    # host_pdbfile = general_cfg['protein_pdb']
-    # host_ff = app.ForceField('amber99sbildn.xml', 'tip3p.xml')
-    # host_pdb = app.PDBFile(host_pdbfile)
-
-    # modeller = app.Modeller(host_pdb.topology, host_pdb.positions)
-    # host_coords = strip_units(host_pdb.positions)
-
-    # padding = 1.0
-    # box_lengths = np.amax(host_coords, axis=0) - np.amin(host_coords, axis=0)
-    # box_lengths = box_lengths.value_in_unit_system(unit.md_unit_system)
-    # box_lengths = box_lengths+padding
-    # box = np.eye(3, dtype=np.float64)*box_lengths
-
-    # modeller.addSolvent(host_ff, boxSize=np.diag(box)*unit.nanometers, neutralize=False)
-    # solvated_host_coords = strip_units(modeller.positions)
-
-    # PDBFile(modeller.topology, "debug_solvated.pdb")
-    # with open("debug_solvated.pdb", "w") as out_file:
-        # app.PDBFile.writeHeader(modeller.topology, out_file)
-        # app.PDBFile.writeModel(modeller.topology, solvated_host_coords, out_file, 0)
-        # app.PDBFile.writeFooter(modeller.topology, out_file)
-
-
-
-    # assert 0
-
-    # nha = host_coords.shape[0]
-    # nwa = solvated_host_coords.shape[0] - nha
-
-    # print(nha, "protein atoms", nwa, "water atoms")
-    # solvated_host_system = host_ff.createSystem(
-    #     modeller.topology,
-    #     nonbondedMethod=app.NoCutoff,
-    #     constraints=None,
-    #     rigidWater=False
-    # )
-
-    # solvated_water_system = water_b
-
-    # assert 0
-    # simulation = Simulation(modeller.topology, system, integrator)
-    # simulation.context.setPositions(modeller.positions)
-    # box_width = 3.0
-    # host_system, host_coords, box, _ = water_box.prep_system(box_width)
-
-    # lambda_schedule = np.array([float(x) for x in general_cfg['lambda_schedule'].split(',')])
 
     num_steps = int(general_cfg['n_steps'])
 
     raw_schedules = config['lambda_schedule']
     schedules = {}
     for k, v in raw_schedules.items():
-        print(k, v)
         schedules[k] = np.array([float(x) for x in v.split(',')])
-
-    # assert 0
 
     # move this to model class
     worker_address_list = []
@@ -335,6 +321,8 @@ if __name__ == "__main__":
 
             handle_and_grads = {}
 
+            min_lamb_start = 0.5
+
             for stage in [0,1,2]:
 
                 if stage == 0:
@@ -364,6 +352,10 @@ if __name__ == "__main__":
 
                     simulation_box = water_box
 
+                    min_lamb_end = None
+
+                    nha_count = water_coords.shape[0]
+
                 if stage == 1:
 
                     guest_lambda_offset_idxs = np.zeros(mol.GetNumAtoms(), dtype=np.int32) 
@@ -381,7 +373,7 @@ if __name__ == "__main__":
                         mol
                     )
 
-                    pocket_idxs = find_protein_pocket_atoms(combined_coords, nha, nwa, 0.4)
+                    pocket_idxs = find_protein_pocket_atoms(combined_coords, protein_box, nha, nwa, 0.4)
 
                     restraint_potential, ssc = add_restraints(
                         combined_coords,
@@ -395,6 +387,10 @@ if __name__ == "__main__":
 
                     lambda_schedule = schedules['complex_restraints']
                     simulation_box = protein_box
+
+                    min_lamb_end = 0.0
+
+                    nha_count = nha + nwa
 
                 if stage == 2:
 
@@ -413,7 +409,7 @@ if __name__ == "__main__":
                         mol
                     )
 
-                    pocket_idxs = find_protein_pocket_atoms(combined_coords, nha, nwa, 0.4)
+                    pocket_idxs = find_protein_pocket_atoms(combined_coords, protein_box, nha, nwa, 0.4)
 
                     restraint_potential, ssc = add_restraints(
                         combined_coords,
@@ -427,6 +423,10 @@ if __name__ == "__main__":
                     lambda_schedule = schedules['complex_decouple']
                     simulation_box = protein_box
 
+                    min_lamb_end = None
+
+                    nha_count = nha + nwa
+
                 intg = LangevinIntegrator(
                     float(intg_cfg['temperature']),
                     float(intg_cfg['dt']),
@@ -436,7 +436,7 @@ if __name__ == "__main__":
                 )
 
                 # tbd fix me and check boundary errors
-                simulation_box = simulation_box + np.eye(3)+0.2
+                # simulation_box = simulation_box + np.eye(3) + 0.2
 
                 sim = simulation.Simulation(
                     combined_coords,
@@ -446,11 +446,13 @@ if __name__ == "__main__":
                     intg
                 )
 
-                # (pred_dG, pred_err), grad_dG, du_dls = model.simulate(
                 du_dls, grad_dG = model.simulate(
                     sim,
                     num_steps,
                     lambda_schedule,
+                    nha_count,
+                    min_lamb_start,
+                    min_lamb_end,
                     stubs
                 )
 

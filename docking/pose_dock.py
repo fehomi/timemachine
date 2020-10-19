@@ -7,7 +7,8 @@ from simtk.openmm import app
 from simtk.openmm.app import PDBFile
 from fe.pdb_writer import PDBWriter
 
-from docking import dock_setup
+# from docking import dock_setup
+from training import setup_system
 from ff.handlers.deserialize import deserialize_handlers
 from timemachine.lib import LangevinIntegrator
 from timemachine.lib import custom_ops
@@ -80,8 +81,13 @@ def pose_dock(
             rigidWater=False,
         )
 
-        bps, masses = dock_setup.combine_potentials(
-            guest_ff_handlers, guest_mol, host_system, np.float32
+        guest_lambda_offset_idxs = np.ones(guest_mol.GetNumAtoms(), dtype=np.int32)
+        bps, masses, _ = setup_system.combine_potentials(
+            guest_ff_handlers,
+            guest_mol,
+            host_system,
+            guest_lambda_offset_idxs,
+            np.float32
         )
         for atom_num in constant_atoms:
             masses[atom_num - 1] += 50000

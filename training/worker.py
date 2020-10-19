@@ -9,12 +9,14 @@ import pickle
 from concurrent import futures
 
 import grpc
+import copy
 
 import service_pb2
 import service_pb2_grpc
 
 from threading import Lock
 
+from timemachine.lib import potentials
 from timemachine.lib import custom_ops
 
 from simtk.openmm import app # debug use for model writing
@@ -32,20 +34,88 @@ class Worker(service_pb2_grpc.WorkerServicer):
 
         simulation = pickle.loads(request.simulation)
 
-        bps = []
-        pots = []
-
-        for potential in simulation.potentials:
-            bps.append(potential.bound_impl()) # get the bound implementation
-
         # reseed if the seed is zero.
         if simulation.integrator.seed == 0:
             simulation.integrator.seed = np.random.randint(0, np.iinfo(np.int32).max)
 
+        # stage 0 - minimization - short steps
+
+        min_intg = simulation.integrator.impl()
+        min_bps = []
+
+        print("NHA", request.num_host_atoms)
+
+        for potential in simulation.potentials:
+
+            if isinstance(potential, potentials.Nonbonded):
+                min_potential = copy.deepcopy(potential)
+                loi = min_potential.get_lambda_offset_idxs()
+                loi[:request.num_host_atoms] = 0
+                loi[request.num_host_atoms:] = 1
+                print(min_potential.get_lambda_offset_idxs())
+                print(min_potential.get_lambda_offset_idxs()[:request.num_host_atoms])
+                print(min_potential.get_lambda_offset_idxs()[request.num_host_atoms:])
+                # print(:request.num_host_atoms
+                # assert 0
+                print("APPENDING potential", potential)
+                min_bps.append(min_potential.bound_impl())
+            elif isinstance(potential, potentials.LambdaPotential):
+                # (ytz): skip restraints during minimization since it overloads
+                # the use of the lambda value. though we need to make sure only
+                # restraints are LambdaPotential'd and this can be hard through C++
+                continue
+            else:
+                print("APPENDING potential", potential)
+                min_bps.append(potential.bound_impl())
+
+        min_ctxt = custom_ops.Context(
+            simulation.x,
+            simulation.v,
+            simulation.box,
+            min_intg,
+            min_bps
+        )
+
+        minimize_schedule = np.linspace(
+            request.min_lamb_start,
+            request.min_lamb_end,
+            request.min_steps
+        )
+
+        print("START")
+        du_dx, _, _ = min_bps[-2].execute(min_ctxt.get_x_t(), simulation.box, request.min_lamb_start)
+
+        # print(du_dl)
+        print(du_dx)
+        print(np.argmax(np.abs(du_dx)))
+        print(np.amax(np.abs(du_dx)))
+
+        # assert 0
+
+        for step, minimize_lamb in enumerate(minimize_schedule):
+
+            # if step % 1 == 0:
+                # energies.append(u)
+
+            min_ctxt.step(minimize_lamb)
+
+        # if step < 100 or step % 10 == 0:
+        u = min_ctxt.get_u_t()
+        print("minimized", step, minimize_lamb, u)
+
+        # assert 0
+
+        # stage 1 - equilibration
+        bps = []
+
+        for potential in simulation.potentials:
+            bps.append(potential.bound_impl()) # get the bound implementation
+
+
         intg = simulation.integrator.impl()
 
         ctxt = custom_ops.Context(
-            simulation.x,
+            min_ctxt.get_x_t(),
             simulation.v,
             simulation.box,
             intg,
@@ -54,23 +124,21 @@ class Worker(service_pb2_grpc.WorkerServicer):
 
         lamb = request.lamb
 
-        minimize_schedule = np.concatenate([
-            np.linspace(0.5, lamb, 500),                 # insertion
-            np.linspace(lamb, lamb, request.prep_steps)  # equilibration
-        ])
+        # equil_schedule = np.linspace(lamb, lamb, request.prep_steps)  # equilibration
 
-        for step, minimize_lamb in enumerate(minimize_schedule):
-            ctxt.step(minimize_lamb)
+        for step in range(request.prep_steps):
+            ctxt.step(lamb)
 
-        _, du_dl, _ = bps[-2].execute(ctxt.get_x_t(), simulation.box, lamb)
+        # _, du_dl, _ = bps[-2].execute(ctxt.get_x_t(), simulation.box, lamb)
+        # if abs(du_dl) > 5000:
+        #     with open("bad_debug_minimize_"+str(simulation.integrator.seed)+".pdb", "w") as out_file:
+        #         print("bad minimize du_dl found for seed", simulation.integrator.seed)
+        #         model = app.PDBFile("holy_debug.pdb")
+        #         app.PDBFile.writeHeader(model.topology, out_file)
+        #         app.PDBFile.writeModel(model.topology, ctxt.get_x_t()*10, out_file, step)
+        #         app.PDBFile.writeFooter(model.topology, out_file)
 
-        if abs(du_dl) > 5000:
-            with open("bad_debug_minimize_"+str(simulation.integrator.seed)+".pdb", "w") as out_file:
-                print("bad minimize du_dl found for seed", simulation.integrator.seed)
-                model = app.PDBFile("holy_debug.pdb")
-                app.PDBFile.writeHeader(model.topology, out_file)
-                app.PDBFile.writeModel(model.topology, ctxt.get_x_t()*10, out_file, step)
-                app.PDBFile.writeFooter(model.topology, out_file)
+        # stage 2 - add observables and do production
 
         energies = []
         frames = []
@@ -81,8 +149,6 @@ class Worker(service_pb2_grpc.WorkerServicer):
 
         if request.observe_du_dp_freq > 0:
             du_dps = []
-            # for name, bp in zip(names, bps):
-            # if name == 'LennardJones' or name == 'Electrostatics':
             for bp in bps:
                 du_dp_obs = custom_ops.AvgPartialUPartialParam(bp, request.observe_du_dp_freq)
                 ctxt.add_observable(du_dp_obs)
@@ -94,6 +160,7 @@ class Worker(service_pb2_grpc.WorkerServicer):
             # app.PDBFile.writeHeader(model.topology, out_file)
 
         for step in range(request.prod_steps):
+
             if step % 100 == 0:
                 u = ctxt.get_u_t()
                 energies.append(u)
@@ -106,7 +173,6 @@ class Worker(service_pb2_grpc.WorkerServicer):
             ctxt.step(lamb)
 
         # app.PDBFile.writeFooter(model.topology, out_file)
-
 
         # if step % 500 == 0:
         # _, du_dl, _ = bps[-1].execute(ctxt.get_x_t(), simulation.box, lamb)
@@ -125,8 +191,6 @@ class Worker(service_pb2_grpc.WorkerServicer):
         # if abs(avg_du_dls) > 5000:
             # print("bad avg_du_dl found for seed", simulation.integrator.seed)
             # app.PDBFile.writeModel(model.topology, ctxt.get_x_t()*10, out_file, step)
-
-
 
         if request.observe_du_dp_freq > 0:
             avg_du_dps = []
