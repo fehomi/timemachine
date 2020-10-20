@@ -56,7 +56,7 @@ def recenter(conf, box):
 
 def add_restraints(combined_coords, ligand_idxs, pocket_idxs, temperature):
 
-    restr_k = 50.0 # force constant for the restraint
+    restr_k = 100.0 # force constant for the restraint
     restr_avg_xi = np.mean(combined_coords[ligand_idxs], axis=0)
     restr_avg_xj = np.mean(combined_coords[pocket_idxs], axis=0)
     restr_ctr_dij = np.sqrt(np.sum((restr_avg_xi - restr_avg_xj)**2))
@@ -221,8 +221,11 @@ if __name__ == "__main__":
         label_err = 0
         data.append((mol, label_dG, label_err))
 
-
     full_dataset = dataset.Dataset(data)
+    np.random.seed(2020)
+    print("shuffling dataset")
+    full_dataset.shuffle() # random split
+
     train_frac = float(general_cfg['train_frac'])
     train_dataset, test_dataset = full_dataset.split(train_frac)
 
@@ -234,7 +237,6 @@ if __name__ == "__main__":
     ff_handlers = deserialize_handlers(ff_raw)
 
     protein_system, protein_coords, nwa, nha, protein_box = build_system.build_protein_system(general_cfg['protein_pdb'])
-
 
     water_system, water_coords, water_box = build_system.build_water_system(box_width=3.0)
 
