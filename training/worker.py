@@ -19,7 +19,7 @@ from threading import Lock
 from timemachine.lib import potentials
 from timemachine.lib import custom_ops
 
-from simtk.openmm import app # debug use for model writing
+# from simtk.openmm import app # debug use for model writing
 
 class Worker(service_pb2_grpc.WorkerServicer):
 
