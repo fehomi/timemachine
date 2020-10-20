@@ -4,3 +4,5 @@
 
 # on the worker side, a custom .so file for the custom_op and will
 # have higher import priority than the .py file
+
+BoundPotential = None
