@@ -35,7 +35,12 @@ def build_protein_system(host_pdbfile):
         rigidWater=False
     )
 
-    return solvated_host_system, solvated_host_coords, nwa, nha, box
+    # nudge box very slightly
+    box[0][0] += 0.2
+    box[1][1] += 0.2
+    box[2][2] += 0.2
+
+    return solvated_host_system, solvated_host_coords, nwa, nha, box, modeller.topology
 
 def build_water_system(box_width):
     ff = app.ForceField('tip3p.xml')

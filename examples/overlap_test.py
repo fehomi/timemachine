@@ -26,6 +26,43 @@ from timemachine.potentials import bonded, shape
 from timemachine.integrator import langevin_coefficients
 
 
+
+# def pmi_restraints_old(conf, params, box, lamb, a_idxs, b_idxs, masses, angle_force, com_force):
+
+#     a_com, a_tensor = inertia_tensor(conf[a_idxs], masses[a_idxs])
+#     b_com, b_tensor = inertia_tensor(conf[b_idxs], masses[b_idxs])
+
+#     a_eval, a_evec = np.linalg.eigh(a_tensor) # already sorted
+#     b_eval, b_evec = np.linalg.eigh(b_tensor) # already sorted
+
+#     loss = []
+#     for d in range(3):
+#         x = a_evec[d]
+#         y = b_evec[d]
+
+
+#         # huafeng's loss fn (doesn't seem to align properly)
+#         # delta = 1-np.sum(x*y)
+#         # loss.append(delta*delta)
+
+
+#         # (ytz): one of the issues is that sometimes we get an eigenvector
+#         # that flips in direction nearly instaneously, however, it is still
+#         # roughly aligned. So we need to still align correctly
+
+#         # another attempt
+#         # x = 
+
+#         # yutong's loss fn
+#         a_pos = np.arccos(np.sum(x*y)) # norm is always 1
+#         a_neg = np.arccos(np.sum(-x*y)) # norm is always 1
+#         a = np.amin([a_pos, a_neg])
+#         loss.append(a*a)
+
+#     loss = np.array(loss)
+
+#     return angle_force*np.sum(loss) + com_force*np.linalg.norm(b_com - a_com)
+
 def pmi_restraints_new(conf, params, box, lamb, a_idxs, b_idxs, masses, angle_force, com_force):
 
     a_com, a_tensor = inertia_tensor(conf[a_idxs], masses[a_idxs])
@@ -34,17 +71,41 @@ def pmi_restraints_new(conf, params, box, lamb, a_idxs, b_idxs, masses, angle_fo
     a_eval, a_evec = np.linalg.eigh(a_tensor) # already sorted
     b_eval, b_evec = np.linalg.eigh(b_tensor) # already sorted
 
-    # convert from column to row eigenvectors
-    a_rvec = np.transpose(a_evec)
-    b_rvec = np.transpose(b_evec)
+    r = np.matmul(np.transpose(a_evec), b_evec)
+    I = np.eye(3)
 
     loss = []
-    for a, b in zip(a_rvec, b_rvec):
-        delta = 1 - np.abs(np.dot(a, b))
-        loss.append(delta*delta)
+    for v, e in zip(r, I):
+        a_pos = np.arccos(np.sum(v*e)) # norm is always 1
+        a_neg = np.arccos(np.sum(-v*e)) # norm is always 1
+        a = np.amin([a_pos, a_neg])
+        loss.append(a*a)
+
+    # assert 0
+    # loss = []
+    # for d in range(3):
+    #     x = a_evec[d]
+    #     y = b_evec[d]
+
+
+    #     # huafeng's loss fn (doesn't seem to align properly)
+    #     # delta = 1-np.sum(x*y)
+    #     # loss.append(delta*delta)
+
+
+    #     # (ytz): one of the issues is that sometimes we get an eigenvector
+    #     # that flips in direction nearly instaneously, however, it is still
+    #     # roughly aligned. So we need to still align correctly
+
+    #     # yutong's loss fn
+    #     a_pos = np.arccos(np.sum(x*y)) # norm is always 1
+    #     a_neg = np.arccos(np.sum(-x*y)) # norm is always 1
+    #     a = np.amin([a_pos, a_neg])
+    #     loss.append(a*a)
+
+    loss = np.array(loss)
 
     return angle_force*np.sum(loss) + com_force*np.linalg.norm(b_com - a_com)
-
 
 def recenter(conf):
     return conf - np.mean(conf, axis=0)
@@ -100,7 +161,7 @@ def get_heavy_atom_idxs(mol):
 
 
 def convergence(args):
-    epoch, lamb, lamb_idx = args
+    epoch, lamb = args
 
     suppl = Chem.SDMolSupplier("tests/data/ligands_40.sdf", removeHs=False)
 
@@ -210,20 +271,17 @@ def convergence(args):
         params=None,
         box=None,
         lamb=None,
-        # masses=np.ones_like(combined_masses),
-        masses=combined_masses,
-        # a_idxs=a_full_idxs,
-        # b_idxs=b_full_idxs,
-        a_idxs=a_idxs,
-        b_idxs=b_idxs,
-        angle_force=100.0,
+        masses=np.ones_like(combined_masses),
+        a_idxs=a_full_idxs,
+        b_idxs=b_full_idxs,
+        angle_force=200.0,
         com_force=100.0
     )
 
     prefactor = 2.7 # unitless
     shape_lamb = (4*np.pi)/(3*prefactor) # unitless
     kappa = np.pi/(np.power(shape_lamb, 2/3)) # unitless
-    sigma = 0.15 # 1 angstrom std, 95% coverage by 2 angstroms
+    sigma = 0.10 # 1 angstrom std, 95% coverage by 2 angstroms
     alpha = kappa/(sigma*sigma)
 
     alphas = np.zeros(combined_mol.GetNumAtoms())+alpha
@@ -238,7 +296,7 @@ def convergence(args):
         b_idxs=b_idxs,
         alphas=alphas,
         weights=weights,
-        k=150.0
+        k=100.0
     )
 
     # shape_restraint_4d_fn = functools.partial(
@@ -253,10 +311,17 @@ def convergence(args):
     # )
 
     def restraint_fn(conf, lamb):
+        # return com_restraint_fn(conf) + shape_restraint_fn(conf, lamb=lamb)
 
         return pmi_restraint_fn(conf) + lamb*shape_restraint_fn(conf)
         # return (1-lamb)*pmi_restraint_fn(conf) + lamb*shape_restraint_fn(conf)
 
+        # return (1-lamb)*com_restraint_fn(conf) + lamb*shape_restraint_4d_fn(conf, lamb=None)
+        # return com_restraint_fn(conf) + shape_restraint_4d_fn(conf, lamb=lamb)
+
+        # not turning off the CoM restraint works better
+        # return com_restraint_fn(conf) + lamb*shape_restraint_fn(conf, lamb=None)
+        # return lamb*shape_restraint_fn(conf)
 
     nrg_fns.append(restraint_fn)
 
@@ -275,7 +340,7 @@ def convergence(args):
     x_t = coords
     v_t = np.zeros_like(x_t)
 
-    w = Chem.SDWriter('frames_heavy_'+str(epoch)+'_'+str(lamb_idx)+'.sdf')
+    w = Chem.SDWriter('frames_heavy_'+str(epoch)+'.sdf')
 
     dt = 1.5e-3
     ca, cb, cc = langevin_coefficients(300.0, dt, 1.0, combined_masses)
@@ -298,7 +363,7 @@ def convergence(args):
         #     w.write(mol)
         #     w.flush()
 
-        if step % 5 == 0 and step > 10000:
+        if step % 5 == 0:
             du_dx, du_dl = grad_fn(x_t, lamb)
             du_dls.append(du_dl)
         else:
@@ -316,8 +381,7 @@ if __name__ == "__main__":
 
     # lambda_schedule = np.linspace(0, 1.0, os.cpu_count())
     lambda_schedule = np.linspace(0, 1.0, 24)
-    # lambda_schedule = np.array([0.0])
-    # lambda_schedule = [0.81, 0.81, 0.81, 0.81, 0.81, 0.81, 0.81, 0.81, 0.81, 0.81, 0.81]
+    # lambda_schedule = [0.0]
     # lambda_schedule = np.array([1e-4, 5e-4, 1e-3, 5e-3, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1, 0.11, 0.12, 0.13, 0.15,0.175, 0.2, 0.225, 0.25, 0.275, 0.3, 0.35, 0.4, 0.5])
     # lambda_schedule = np.array([0.0])
     # lambda_schedule = np.linspace(0.2, 0.6, 24)
@@ -326,8 +390,8 @@ if __name__ == "__main__":
 
     for epoch in range(100):
         args = []
-        for l_idx, lamb in enumerate(lambda_schedule):
-            args.append((epoch, lamb, l_idx))
+        for lamb in lambda_schedule:
+            args.append((epoch, lamb))
         avg_du_dls = pool.map(convergence, args)
         avg_du_dls = np.asarray(avg_du_dls)
 

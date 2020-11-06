@@ -54,14 +54,17 @@ def set_nonbonded_lambda_idxs(recipe, atom_idxs, plane, offset):
             offset_idxs = bp.get_lambda_offset_idxs()
             offset_idxs[atom_idxs] = offset
 
-def create_centroid_restraints(core_pairs, com_k, masses):
+def create_centroid_restraints(a_idxs, b_idxs, masses, k):
     """
     Create a centroid restraint between core atoms
 
     Parameters
     ----------
-    core_pairs: np.array
-        Tuple of atom pairs we wish to restrain.
+    a_idxs: np.array
+        First set of atoms to be used.
+
+    b_idxs: np.array
+        Second set of atoms to be used.
 
     core_k: float
         Force constant of the restraints
@@ -70,19 +73,71 @@ def create_centroid_restraints(core_pairs, com_k, masses):
         Atomic masses
 
     """
-    a_idxs = []
-    b_idxs = []
-    for i,j in core_pairs:
-        assert i not in a_idxs
-        assert j not in b_idxs
-        a_idxs.append(i)
-        b_idxs.append(j)
+    # a_idxs = []
+    # b_idxs = []
+    # for i,j in core_pairs:
+    #     assert i not in a_idxs
+    #     assert j not in b_idxs
+    #     a_idxs.append(i)
+    #     b_idxs.append(j)
 
     a_idxs = np.array(a_idxs, dtype=np.int32)
     b_idxs = np.array(b_idxs, dtype=np.int32)
     masses = np.array(masses, dtype=np.float64)
 
-    return potentials.CentroidRestraint(a_idxs, b_idxs, masses, com_k, 0.0).bind(np.array([]))
+    return potentials.CentroidRestraint(
+        a_idxs,
+        b_idxs,
+        masses,
+        k,
+        0.0).bind(np.array([]))
+
+
+def create_shape_restraints(a_idxs, b_idxs, shape_k, N):
+    """
+    Parameters
+    ----------
+    a_idxs: np.array int32
+        First set of atoms
+
+    b_idxs: np.array int32
+        Second set of atoms
+
+    shape_k: float
+        Force constant for the shape force
+
+    N: int
+        Total number of atoms in the system
+
+    """
+
+    prefactor = 2.7 # unitless
+    lamb = (4*np.pi)/(3*prefactor) # unitless
+    kappa = np.pi/(np.power(lamb, 2/3)) # unitless
+    # sigma = 1.6 # angstroms or nm
+    sigma = 0.10 # nm
+    alpha = kappa/(sigma*sigma)
+
+    alphas = np.zeros(N, dtype=np.float64)+alpha
+    weights = np.zeros(N, dtype=np.float64)+prefactor
+
+    return potentials.Shape(
+        N,
+        a_idxs,
+        b_idxs,
+        alphas,
+        weights,
+        shape_k
+    ).bind(np.array([]))
+
+
+def create_inertial_restraints(a_idxs, b_idxs, masses, k):
+    return potentials.InertialRestraint(
+        a_idxs,
+        b_idxs,
+        masses,
+        k
+    ).bind(np.array([]))
 
 
 def create_core_restraints(core_pairs, core_k):
@@ -115,7 +170,7 @@ def create_core_restraints(core_pairs, core_k):
 
     return potentials.CoreRestraint(bond_idxs).bind(bond_params)
 
-def stage_0(recipe, b_idxs, core_pairs, centroid_k, core_k):
+def stage_0(recipe, a_idxs, b_idxs, offset_idxs, centroid_k, shape_k):
     """
     Modify a recipe to allow for restraint conversion. This PR will add an alchemical
     potential that interpolates between centroid and core restraints, as well as modify
@@ -124,8 +179,14 @@ def stage_0(recipe, b_idxs, core_pairs, centroid_k, core_k):
     Parameters
     ----------
 
+    a_idxs: np.array
+        Atoms in a_idxs will be considered as part of the shape force
+
     b_idxs: np.array
-        Atoms in b_idxs will have their lambda plane idxs set to 1.
+        Atoms in b_idxs will be considered as part of the shape force
+
+    offset_idxs: np.array
+        Atoms in offset_idxs will be decoupled in the nonbonded terms
 
     core_pairs: np.array
         Tuple of atom pairs we wish to restrain.
@@ -137,13 +198,17 @@ def stage_0(recipe, b_idxs, core_pairs, centroid_k, core_k):
         Force constant for core restraints
 
     """
+
+    assert 0
     N = len(recipe.masses)
 
-    core_restraints = create_core_restraints(core_pairs, core_k)
-    centroid_restraints = create_centroid_restraints(core_pairs, centroid_k, recipe.masses)
+    shape_restraints = create_shape_restraints(a_idxs, b_idxs, shape_k, N)
+    unity_masses = np.ones_like(recipe.masses) # equal weighting
+    centroid_restraints = create_centroid_restraints(a_idxs, b_idxs, centroid_k, unity_masses)
 
-    lhs = potentials.LambdaPotential(core_restraints, N, len(core_restraints.params), 1.0, 0.0) # multplier, offset
-    rhs = potentials.LambdaPotential(centroid_restraints, N, len(centroid_restraints.params), -1.0, 1.0)
+    # lhs = potentials.LambdaPotential(centroid_restraints, N, len(centroid_restraints.params), -1.0, 1.0)
+    lhs = centroid_restraints
+    rhs = potentials.LambdaPotential(shape_restraints, N, len(shape_restraints.params), 1.0, 0.0) # multplier, offset
 
     recipe.bound_potentials.append(lhs)
     recipe.bound_potentials.append(rhs)
@@ -151,9 +216,10 @@ def stage_0(recipe, b_idxs, core_pairs, centroid_k, core_k):
     recipe.vjp_fns.append([])
     recipe.vjp_fns.append([])
 
-    set_nonbonded_lambda_idxs(recipe, b_idxs, 1, 0)
+    set_nonbonded_lambda_idxs(recipe, offset_idxs, 1, 0)
 
-def stage_1(recipe, a_idxs, b_idxs, core_pairs, core_k):
+# def stage_1(recipe, a_idxs, b_idxs, a_full_idxs, b_full_idxs, centroid_k, shape_k):
+def stage_1(recipe, a_full_idxs, b_full_idxs, centroid_k, inertial_k):
     """
     Modify a recipe for stage 1 decoupling. A vanilla core restraint is added. The nonbonded
     plane idxs are all zero, and offset idxs are modified for b_idxs. In addition, a fully dense
@@ -178,13 +244,48 @@ def stage_1(recipe, a_idxs, b_idxs, core_pairs, core_k):
 
     """
 
-    N = len(recipe.masses)
+    # assert 0
 
-    core_restraints = create_core_restraints(core_pairs, core_k)
+    # N = len(recipe.masses)
 
-    recipe.bound_potentials.append(core_restraints)
+    # masses
+
+    # shape_restraints = create_shape_restraints(a_idxs, b_idxs, shape_k, N)
+    # unity_masses = np.ones_like(recipe.masses) # equal weighting
+
+    # need both
+
+
+    # lhs = centroid_restraints
+    # rhs = shape_restraints
+
+    # core_restraints = create_core_restraints(core_pairs, core_k)
+    # recipe.bound_potentials.append(core_restraints)
+    # recipe.vjp_fns.append([])
+
+    a_full_idxs = np.array(a_full_idxs, dtype=np.int32)
+    b_full_idxs = np.array(b_full_idxs, dtype=np.int32)
+
+    centroid_restraints = create_centroid_restraints(
+        a_full_idxs,
+        b_full_idxs,
+        recipe.masses,
+        centroid_k
+    )
+
+    inertial_restraints = create_inertial_restraints(
+        a_full_idxs,
+        b_full_idxs,
+        recipe.masses,
+        inertial_k
+    )
+
+    recipe.bound_potentials.append(centroid_restraints)
+    recipe.bound_potentials.append(inertial_restraints)
+
+    recipe.vjp_fns.append([])
     recipe.vjp_fns.append([])
 
-    add_nonbonded_exclusions(recipe, a_idxs, b_idxs)
-    set_nonbonded_lambda_idxs(recipe, b_idxs, 0, 1)
+    add_nonbonded_exclusions(recipe, a_full_idxs, b_full_idxs)
+    set_nonbonded_lambda_idxs(recipe, b_full_idxs, 0, 1)
 

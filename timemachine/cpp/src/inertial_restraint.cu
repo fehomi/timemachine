@@ -23,7 +23,8 @@ InertialRestraint<RealType>::InertialRestraint(
     h_b_idxs_(group_b_idxs),
     h_masses_(masses),
     h_x_buffer_(N_*3),
-    h_conf_adjoint_(N_*3) {
+    h_conf_adjoint_(N_*3)  // intentionally uninitialized
+    {
 
     for(int i=0; i < group_a_idxs.size(); i++) {
         if(group_a_idxs[i] >= N_ || group_a_idxs[i] < 0) {
@@ -370,6 +371,8 @@ void InertialRestraint<RealType>::execute_device(
 
     dsyevv3(b_array, b_v, b_w);
 
+    // std::cout << "[" << a_w[0] << " " << a_w[1] << " " << a_w[2] << "] [" << b_w[0] << " " << b_w[1] << " " << b_w[2] << "]" << std::endl;
+
     // this is equivalent to:
     // R' = matmul(A^T, B)
     // sum_i (1 - dot(R'[i], e[i]))^2 where e is the identity matrix (the standard basis)
@@ -400,6 +403,7 @@ void InertialRestraint<RealType>::execute_device(
     grad_eigh(a_w, a_v, dl_da_v, dl_da_tensor);
     grad_eigh(b_w, b_v, dl_db_v, dl_db_tensor);
 
+    // re-zero buffer
     for(int i=0; i < h_c_idxs_.size(); i++) {
         for(int d=0; d < 3; d++) {
             h_conf_adjoint_[h_c_idxs_[i]*3+d] = 0;
