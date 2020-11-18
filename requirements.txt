@@ -7,3 +7,8 @@ scipy==1.1.0
 pymbar==3.0.5
 jax==0.1.61
 jaxlib==0.1.41
+hilbertcurve==1.0.3
+networkx
+openmm # conda install -c omnia openmm
+openeye-toolkits # conda install -c openeye openeye-toolkits
+rdkit # conda install -c conda-forge rdkit
