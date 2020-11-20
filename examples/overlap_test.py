@@ -6,7 +6,7 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 
 import multiprocessing
-
+import asciiplotlib as apl
 
 import jax
 import jax.numpy.linalg as linalg
@@ -31,6 +31,10 @@ def pmi_restraints_new(conf, params, box, lamb, a_idxs, b_idxs, masses, angle_fo
     a_com, a_tensor = inertia_tensor(conf[a_idxs], masses[a_idxs])
     b_com, b_tensor = inertia_tensor(conf[b_idxs], masses[b_idxs])
 
+    # a_norm = np.sqrt(np.sum(a_tensor**2))
+    # b_norm = np.sqrt(np.sum(a_tensor**2))
+    # d = 1 - np.trace(np.dot(a_tensor, b_tensor))/(a_norm*b_norm)
+
     a_eval, a_evec = np.linalg.eigh(a_tensor) # already sorted
     b_eval, b_evec = np.linalg.eigh(b_tensor) # already sorted
 
@@ -38,12 +42,25 @@ def pmi_restraints_new(conf, params, box, lamb, a_idxs, b_idxs, masses, angle_fo
     a_rvec = np.transpose(a_evec)
     b_rvec = np.transpose(b_evec)
 
+    # check for degeneracies in a_eval and b_eval
+    a_is_degen = np.abs(np.expand_dims(a_eval, axis=-1) - np.expand_dims(a_eval, axis=0))
+    a_is_degen += np.eye(3)
+    a_is_degen = np.amin(a_is_degen, axis=0)
+    a_scale = a_is_degen / np.linalg.norm(a_is_degen) # unit vector
+
+    b_is_degen = np.abs(np.expand_dims(b_eval, axis=-1) - np.expand_dims(b_eval, axis=0))
+    b_is_degen += np.eye(3)
+    b_is_degen = np.amin(b_is_degen, axis=0)
+    b_scale = b_is_degen / np.linalg.norm(b_is_degen) # unit vector
+
     loss = []
-    for a, b in zip(a_rvec, b_rvec):
+    for a, b, d_a, d_b in zip(a_rvec, b_rvec, a_scale, b_scale):
         delta = 1 - np.abs(np.dot(a, b))
-        loss.append(delta*delta)
+        loss.append(d_a*d_b*delta*delta)
 
     return angle_force*np.sum(loss) + com_force*np.linalg.norm(b_com - a_com)
+
+
 
 
 def recenter(conf):
@@ -288,8 +305,8 @@ def convergence(args):
     onp.random.seed(int.from_bytes(os.urandom(4), byteorder='little'))
 
 
-    # for step in range(100000):
     for step in range(100000):
+    # for step in range(2000):
 
         # if step % 1000 == 0:
         #     u = nrg_fn(x_t, lamb)
@@ -299,6 +316,7 @@ def convergence(args):
         #     w.flush()
 
         if step % 5 == 0 and step > 10000:
+        # if step % 5 == 0 and step > 1000:
             du_dx, du_dl = grad_fn(x_t, lamb)
             du_dls.append(du_dl)
         else:
@@ -331,6 +349,12 @@ if __name__ == "__main__":
         avg_du_dls = pool.map(convergence, args)
         avg_du_dls = np.asarray(avg_du_dls)
 
+        dG = onp.trapz(avg_du_dls,lambda_schedule)
+
+        fig = apl.figure()
+        fig.plot(lambda_schedule, avg_du_dls, label=f"dG: {dG:.2f} kJ/mol", width=80, height=40)
+        fig.show()
+
         for lamb, ddl in zip(lambda_schedule, avg_du_dls):
             print("lambda", lamb, "du_dl",  ddl)
-        print(epoch, "epoch", "deltaG", onp.trapz(avg_du_dls,lambda_schedule))
+        print(epoch, "epoch", "deltaG", )
