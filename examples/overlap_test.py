@@ -276,12 +276,21 @@ def convergence(args):
 
 if __name__ == "__main__":
 
-    pool = multiprocessing.Pool() # defaults to # of cpus
+    cpu_count = os.cpu_count()
+    print("cpu count:", cpu_count)
+
+    n_processes = cpu_count
+    # overwriting this...
+    n_processes = 1
+
+    print("# of processes:", n_processes)
+
+    pool = multiprocessing.Pool(processes=n_processes)  # defaults to # of cpus
 
     lambda_schedule = np.linspace(0, 1.0, 24)
 
-    print("cpu count:", os.cpu_count())
     for epoch in range(100):
+
         args = []
         for l_idx, lamb in enumerate(lambda_schedule):
             args.append((epoch, lamb, l_idx))
