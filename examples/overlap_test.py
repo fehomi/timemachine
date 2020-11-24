@@ -2,28 +2,28 @@
 import os
 
 from jax.config import config; config.update("jax_enable_x64", True)
-from rdkit import Chem
-from rdkit.Chem import AllChem
 
 import multiprocessing
 
 
 import jax
-import jax.numpy.linalg as linalg
-import jax.numpy as np
 import functools
 import jax.numpy as np
 import numpy as onp
 
-from scipy.stats import special_ortho_group
 from ff.handlers.deserialize import deserialize_handlers
 
 from rdkit import Chem
-from rdkit.Chem import AllChem
 
 from ff import handlers
 from timemachine.potentials import bonded, shape
 from timemachine.integrator import langevin_coefficients
+
+from os.path import join
+
+path_to_project = '/Users/jfass/Documents/GitHub/timemachine'
+path_to_ligands = join(path_to_project, "tests/data/ligands_40.sdf")
+path_to_forcefield = join(path_to_project, 'ff/params/smirnoff_1_1_0_ccc.py')
 
 
 def pmi_restraints_new(conf, params, box, lamb, a_idxs, b_idxs, masses, angle_force, com_force):
@@ -102,7 +102,7 @@ def get_heavy_atom_idxs(mol):
 def convergence(args):
     epoch, lamb, lamb_idx = args
 
-    suppl = Chem.SDMolSupplier("tests/data/ligands_40.sdf", removeHs=False)
+    suppl = Chem.SDMolSupplier(path_to_ligands, removeHs=False)
 
     ligands = []
     for mol in suppl:
@@ -143,8 +143,7 @@ def convergence(args):
     nrg_fns = []
 
     # load forcefield
-    forcefield = 'ff/params/smirnoff_1_1_0_ccc.py'
-    ff_raw = open(forcefield, "r").read()
+    ff_raw = open(path_to_forcefield, "r").read()
     ff_handlers = deserialize_handlers(ff_raw)
 
     combined_mol = Chem.CombineMols(ligand_a, ligand_b)
