@@ -111,9 +111,7 @@ def convergence(args):
     ligand_a = ligands[0]
     ligand_b = ligands[1]
 
-    # print(ligand_a.GetNumAtoms())
-    # print(ligand_b.GetNumAtoms())
-
+    # Use the following if you want to generate random molecules
     # ligand_a = Chem.AddHs(Chem.MolFromSmiles("CCCC1=NN(C2=C1N=C(NC2=O)C3=C(C=CC(=C3)S(=O)(=O)N4CCN(CC4)C)OCC)C"))
     # ligand_b = Chem.AddHs(Chem.MolFromSmiles("CCCC1=NN(C2=C1N=C(NC2=O)C3=C(C=CC(=C3)S(=O)(=O)N4CCN(CC4)C)OCC)C"))
     # ligand_a = Chem.AddHs(Chem.MolFromSmiles("c1ccccc1CC"))
@@ -123,6 +121,7 @@ def convergence(args):
 
     coords_a = get_conf(ligand_a, idx=0)
     coords_b = get_conf(ligand_b, idx=0)
+    # uncomment if you want to apply a random rotation
     # coords_b = np.matmul(coords_b, special_ortho_group.rvs(3))
 
     coords_a = recenter(coords_a)
@@ -130,9 +129,11 @@ def convergence(args):
 
     coords = np.concatenate([coords_a, coords_b])
 
+    # heavy atoms only
     a_idxs = get_heavy_atom_idxs(ligand_a)
     b_idxs = get_heavy_atom_idxs(ligand_b)
 
+    # all atoms
     a_full_idxs = np.arange(0, ligand_a.GetNumAtoms())
     b_full_idxs = np.arange(0, ligand_b.GetNumAtoms())
 
@@ -141,12 +142,14 @@ def convergence(args):
 
     nrg_fns = []
 
+    # load forcefield
     forcefield = 'ff/params/smirnoff_1_1_0_ccc.py'
     ff_raw = open(forcefield, "r").read()
     ff_handlers = deserialize_handlers(ff_raw)
 
     combined_mol = Chem.CombineMols(ligand_a, ligand_b)
 
+    # parameterize only bonded and angle terms for speed
     for handler in ff_handlers:
         if isinstance(handler, handlers.HarmonicBondHandler):
             bond_idxs, (bond_params, _) = handler.parameterize(combined_mol)
@@ -166,60 +169,35 @@ def convergence(args):
                     angle_idxs=angle_idxs
                 )
             )
-        # elif isinstance(handler, handlers.ImproperTorsionHandler):
-        #     torsion_idxs, (torsion_params, _) = handler.parameterize(combined_mol)
-        #     print(torsion_idxs)
-        #     assert 0
-        #     nrg_fns.append(
-        #         functools.partial(bonded.periodic_torsion,
-        #             params=torsion_params,
-        #             box=None,
-        #             lamb=None,
-        #             torsion_idxs=torsion_idxs
-        #         )
-        #     )
-        # elif isinstance(handler, handlers.ProperTorsionHandler):
-        #     torsion_idxs, (torsion_params, _) = handler.parameterize(combined_mol)
-        #     # print(torsion_idxs)
-        #     nrg_fns.append(
-        #         functools.partial(bonded.periodic_torsion,
-        #             params=torsion_params,
-        #             box=None,
-        #             lamb=None,
-        #             torsion_idxs=torsion_idxs
-        #         )
-        #     )
 
     masses_a = onp.array([a.GetMass() for a in ligand_a.GetAtoms()]) * 10000
     masses_b = onp.array([a.GetMass() for a in ligand_b.GetAtoms()])
 
     combined_masses = np.concatenate([masses_a, masses_b])
 
-    # com_restraint_fn = functools.partial(bonded.centroid_restraint,
-    #     params=None,
-    #     box=None,
-    #     lamb=None,
-    #     # masses=combined_masses, # try making this ones-like
-    #     masses=np.ones_like(combined_masses),
-    #     group_a_idxs=a_idxs,
-    #     group_b_idxs=b_idxs,
-    #     kb=50.0,
-    #     b0=0.0)
+    # center of mass restraint
+    com_restraint_fn = functools.partial(bonded.centroid_restraint,
+        params=None,
+        box=None,
+        lamb=None,
+        masses=combined_masses,
+        group_a_idxs=a_idxs,
+        group_b_idxs=b_idxs,
+        kb=50.0,
+        b0=0.0)
 
     pmi_restraint_fn = functools.partial(pmi_restraints_new,
         params=None,
         box=None,
         lamb=None,
-        # masses=np.ones_like(combined_masses),
         masses=combined_masses,
-        # a_idxs=a_full_idxs,
-        # b_idxs=b_full_idxs,
         a_idxs=a_idxs,
         b_idxs=b_idxs,
         angle_force=100.0,
         com_force=100.0
     )
 
+    # set up shape parameters
     prefactor = 2.7 # unitless
     shape_lamb = (4*np.pi)/(3*prefactor) # unitless
     kappa = np.pi/(np.power(shape_lamb, 2/3)) # unitless
@@ -241,22 +219,9 @@ def convergence(args):
         k=150.0
     )
 
-    # shape_restraint_4d_fn = functools.partial(
-    #     shape.harmonic_4d_overlap,
-    #     box=None,
-    #     params=None,
-    #     a_idxs=a_idxs,
-    #     b_idxs=b_idxs,
-    #     alphas=alphas,
-    #     weights=weights,
-    #     k=200.0
-    # )
-
     def restraint_fn(conf, lamb):
-
-        return pmi_restraint_fn(conf) + lamb*shape_restraint_fn(conf)
+        return (1-lamb)*com_restraint_fn(conf) + lamb*shape_restraint_fn(conf)
         # return (1-lamb)*pmi_restraint_fn(conf) + lamb*shape_restraint_fn(conf)
-
 
     nrg_fns.append(restraint_fn)
 
@@ -284,13 +249,12 @@ def convergence(args):
 
     du_dls = []
 
-    # re-seed since forking 
+    # re-seed since forking preserves the seeded state
     onp.random.seed(int.from_bytes(os.urandom(4), byteorder='little'))
 
-
-    # for step in range(100000):
     for step in range(100000):
 
+        # uncomment if want to write out coordinates
         # if step % 1000 == 0:
         #     u = nrg_fn(x_t, lamb)
         #     print("step", step, "nrg", onp.asarray(u), "avg_du_dl",  onp.mean(du_dls))
@@ -314,6 +278,7 @@ if __name__ == "__main__":
 
     pool = multiprocessing.Pool() # defaults to # of cpus
 
+    # try different lambda_schedules
     # lambda_schedule = np.linspace(0, 1.0, os.cpu_count())
     lambda_schedule = np.linspace(0, 1.0, 24)
     # lambda_schedule = np.array([0.0])
@@ -323,7 +288,6 @@ if __name__ == "__main__":
     # lambda_schedule = np.linspace(0.2, 0.6, 24)
 
     print("cpu count:", os.cpu_count())
-
     for epoch in range(100):
         args = []
         for l_idx, lamb in enumerate(lambda_schedule):
