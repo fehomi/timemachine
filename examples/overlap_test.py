@@ -1,10 +1,10 @@
-
 import os
 
-from jax.config import config; config.update("jax_enable_x64", True)
+from jax.config import config;
+
+config.update("jax_enable_x64", True)
 
 import multiprocessing
-
 
 import jax
 import functools
@@ -27,12 +27,11 @@ path_to_forcefield = join(path_to_project, 'ff/params/smirnoff_1_1_0_ccc.py')
 
 
 def pmi_restraints_new(conf, params, box, lamb, a_idxs, b_idxs, masses, angle_force, com_force):
-
     a_com, a_tensor = inertia_tensor(conf[a_idxs], masses[a_idxs])
     b_com, b_tensor = inertia_tensor(conf[b_idxs], masses[b_idxs])
 
-    a_eval, a_evec = np.linalg.eigh(a_tensor) # already sorted
-    b_eval, b_evec = np.linalg.eigh(b_tensor) # already sorted
+    a_eval, a_evec = np.linalg.eigh(a_tensor)  # already sorted
+    b_eval, b_evec = np.linalg.eigh(b_tensor)  # already sorted
 
     # convert from column to row eigenvectors
     a_rvec = np.transpose(a_evec)
@@ -41,28 +40,29 @@ def pmi_restraints_new(conf, params, box, lamb, a_idxs, b_idxs, masses, angle_fo
     loss = []
     for a, b in zip(a_rvec, b_rvec):
         delta = 1 - np.abs(np.dot(a, b))
-        loss.append(delta*delta)
+        loss.append(delta * delta)
 
-    return angle_force*np.sum(loss) + com_force*np.linalg.norm(b_com - a_com)
+    return angle_force * np.sum(loss) + com_force * np.linalg.norm(b_com - a_com)
 
 
 def recenter(conf):
     return conf - np.mean(conf, axis=0)
 
+
 def inertia_tensor(conf, masses):
     com = np.average(conf, axis=0, weights=masses)
     conf = conf - com
     conf_T = conf.transpose()
-    
+
     xs = conf[:, 0]
     ys = conf[:, 1]
     zs = conf[:, 2]
-    xx = np.average(ys*ys + zs*zs, weights=masses)
-    yy = np.average(xs*xs + zs*zs, weights=masses)
-    zz = np.average(xs*xs + ys*ys, weights=masses)
-    xy = np.average(-xs*ys, weights=masses)
-    xz = np.average(-xs*zs, weights=masses)
-    yz = np.average(-ys*zs, weights=masses)
+    xx = np.average(ys * ys + zs * zs, weights=masses)
+    yy = np.average(xs * xs + zs * zs, weights=masses)
+    zz = np.average(xs * xs + ys * ys, weights=masses)
+    xy = np.average(-xs * ys, weights=masses)
+    xz = np.average(-xs * zs, weights=masses)
+    yz = np.average(-ys * zs, weights=masses)
     tensor = np.array([
         [xx, xy, xz],
         [xy, yy, yz],
@@ -71,11 +71,13 @@ def inertia_tensor(conf, masses):
 
     return com, tensor
 
+
 def get_conf(romol, idx):
     conformer = romol.GetConformer(idx)
     guest_conf = np.array(conformer.GetPositions(), dtype=np.float64)
     guest_conf /= 10
     return recenter(guest_conf)
+
 
 def make_conformer(mol, conf_a, conf_b):
     mol.RemoveAllConformers()
@@ -91,7 +93,6 @@ def make_conformer(mol, conf_a, conf_b):
 
 
 def get_heavy_atom_idxs(mol):
-
     idxs = []
     for a_idx, a in enumerate(mol.GetAtoms()):
         if a.GetAtomicNum() > 1:
@@ -154,19 +155,19 @@ def convergence(args):
             bond_idxs, (bond_params, _) = handler.parameterize(combined_mol)
             nrg_fns.append(
                 functools.partial(bonded.harmonic_bond,
-                    params=bond_params,
-                    box=None,
-                    bond_idxs=bond_idxs
-                )
+                                  params=bond_params,
+                                  box=None,
+                                  bond_idxs=bond_idxs
+                                  )
             )
         elif isinstance(handler, handlers.HarmonicAngleHandler):
             angle_idxs, (angle_params, _) = handler.parameterize(combined_mol)
             nrg_fns.append(
                 functools.partial(bonded.harmonic_angle,
-                    params=angle_params,
-                    box=None,
-                    angle_idxs=angle_idxs
-                )
+                                  params=angle_params,
+                                  box=None,
+                                  angle_idxs=angle_idxs
+                                  )
             )
 
     masses_a = onp.array([a.GetMass() for a in ligand_a.GetAtoms()]) * 10000
@@ -176,35 +177,35 @@ def convergence(args):
 
     # center of mass restraint
     com_restraint_fn = functools.partial(bonded.centroid_restraint,
-        params=None,
-        box=None,
-        lamb=None,
-        masses=combined_masses,
-        group_a_idxs=a_idxs,
-        group_b_idxs=b_idxs,
-        kb=50.0,
-        b0=0.0)
+                                         params=None,
+                                         box=None,
+                                         lamb=None,
+                                         masses=combined_masses,
+                                         group_a_idxs=a_idxs,
+                                         group_b_idxs=b_idxs,
+                                         kb=50.0,
+                                         b0=0.0)
 
     pmi_restraint_fn = functools.partial(pmi_restraints_new,
-        params=None,
-        box=None,
-        lamb=None,
-        masses=combined_masses,
-        a_idxs=a_idxs,
-        b_idxs=b_idxs,
-        angle_force=100.0,
-        com_force=100.0
-    )
+                                         params=None,
+                                         box=None,
+                                         lamb=None,
+                                         masses=combined_masses,
+                                         a_idxs=a_idxs,
+                                         b_idxs=b_idxs,
+                                         angle_force=100.0,
+                                         com_force=100.0
+                                         )
 
     # set up shape parameters
-    prefactor = 2.7 # unitless
-    shape_lamb = (4*np.pi)/(3*prefactor) # unitless
-    kappa = np.pi/(np.power(shape_lamb, 2/3)) # unitless
-    sigma = 0.15 # 1 angstrom std, 95% coverage by 2 angstroms
-    alpha = kappa/(sigma*sigma)
+    prefactor = 2.7  # unitless
+    shape_lamb = (4 * np.pi) / (3 * prefactor)  # unitless
+    kappa = np.pi / (np.power(shape_lamb, 2 / 3))  # unitless
+    sigma = 0.15  # 1 angstrom std, 95% coverage by 2 angstroms
+    alpha = kappa / (sigma * sigma)
 
-    alphas = np.zeros(combined_mol.GetNumAtoms())+alpha
-    weights = np.zeros(combined_mol.GetNumAtoms())+prefactor
+    alphas = np.zeros(combined_mol.GetNumAtoms()) + alpha
+    weights = np.zeros(combined_mol.GetNumAtoms()) + prefactor
 
     shape_restraint_fn = functools.partial(
         shape.harmonic_overlap,
@@ -219,7 +220,7 @@ def convergence(args):
     )
 
     def restraint_fn(conf, lamb):
-        return (1-lamb)*com_restraint_fn(conf) + lamb*shape_restraint_fn(conf)
+        return (1 - lamb) * com_restraint_fn(conf) + lamb * shape_restraint_fn(conf)
         # return (1-lamb)*pmi_restraint_fn(conf) + lamb*shape_restraint_fn(conf)
 
     nrg_fns.append(restraint_fn)
@@ -229,8 +230,8 @@ def convergence(args):
         for u in nrg_fns:
             s.append(u(conf, lamb=lamb))
         return np.sum(s)
- 
-    grad_fn = jax.grad(nrg_fn, argnums=(0,1))
+
+    grad_fn = jax.grad(nrg_fn, argnums=(0, 1))
     grad_fn = jax.jit(grad_fn)
 
     du_dx_fn = jax.grad(nrg_fn, argnums=(0))
@@ -239,11 +240,11 @@ def convergence(args):
     x_t = coords
     v_t = np.zeros_like(x_t)
 
-    w = Chem.SDWriter('frames_heavy_'+str(epoch)+'_'+str(lamb_idx)+'.sdf')
+    w = Chem.SDWriter('frames_heavy_' + str(epoch) + '_' + str(lamb_idx) + '.sdf')
 
     dt = 1.5e-3
     ca, cb, cc = langevin_coefficients(300.0, dt, 1.0, combined_masses)
-    cb = -1*onp.expand_dims(cb, axis=-1)
+    cb = -1 * onp.expand_dims(cb, axis=-1)
     cc = onp.expand_dims(cc, axis=-1)
 
     du_dls = []
@@ -267,8 +268,8 @@ def convergence(args):
         else:
             du_dx = du_dx_fn(x_t, lamb)
 
-        v_t = ca*v_t + cb*du_dx + cc*onp.random.normal(size=x_t.shape)
-        x_t = x_t + v_t*dt
+        v_t = ca * v_t + cb * du_dx + cc * onp.random.normal(size=x_t.shape)
+        x_t = x_t + v_t * dt
 
     return np.mean(onp.mean(du_dls))
 
