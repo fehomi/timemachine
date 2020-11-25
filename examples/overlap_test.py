@@ -221,28 +221,13 @@ def convergence(args):
 
 
 if __name__ == "__main__":
+    lambda_schedule = np.linspace(0, 1.0, )
+    epoch = 0
+    args = []
+    for l_idx, lamb in enumerate(lambda_schedule):
+        args.append((epoch, lamb, l_idx))
 
-    cpu_count = os.cpu_count()
-    print("cpu count:", cpu_count)
-
-    n_processes = cpu_count
-    # overwriting this...
-    n_processes = 1
-
-    print("# of processes:", n_processes)
-
-    pool = multiprocessing.Pool(processes=n_processes)  # defaults to # of cpus
-
-    lambda_schedule = np.linspace(0, 1.0, 24)
-
-    for epoch in range(100):
-
-        args = []
-        for l_idx, lamb in enumerate(lambda_schedule):
-            args.append((epoch, lamb, l_idx))
-        avg_du_dls = pool.map(convergence, args)
-        avg_du_dls = np.asarray(avg_du_dls)
-
-        for lamb, ddl in zip(lambda_schedule, avg_du_dls):
-            print("lambda", lamb, "du_dl",  ddl)
-        print(epoch, "epoch", "deltaG", onp.trapz(avg_du_dls,lambda_schedule))
+    # let's just look at a single "epoch" for the purposes of profiling
+    avg_du_dls = convergence(args[0])
+    avg_du_dls = np.asarray(avg_du_dls)
+    print(avg_du_dls)
