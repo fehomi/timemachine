@@ -25,51 +25,8 @@ path_to_project = '/Users/jfass/Documents/GitHub/timemachine'
 path_to_ligands = join(path_to_project, "tests/data/ligands_40.sdf")
 path_to_forcefield = join(path_to_project, 'ff/params/smirnoff_1_1_0_ccc.py')
 
-
-def pmi_restraints_new(conf, params, box, lamb, a_idxs, b_idxs, masses, angle_force, com_force):
-    a_com, a_tensor = inertia_tensor(conf[a_idxs], masses[a_idxs])
-    b_com, b_tensor = inertia_tensor(conf[b_idxs], masses[b_idxs])
-
-    a_eval, a_evec = np.linalg.eigh(a_tensor)  # already sorted
-    b_eval, b_evec = np.linalg.eigh(b_tensor)  # already sorted
-
-    # convert from column to row eigenvectors
-    a_rvec = np.transpose(a_evec)
-    b_rvec = np.transpose(b_evec)
-
-    loss = []
-    for a, b in zip(a_rvec, b_rvec):
-        delta = 1 - np.abs(np.dot(a, b))
-        loss.append(delta * delta)
-
-    return angle_force * np.sum(loss) + com_force * np.linalg.norm(b_com - a_com)
-
-
 def recenter(conf):
     return conf - np.mean(conf, axis=0)
-
-
-def inertia_tensor(conf, masses):
-    com = np.average(conf, axis=0, weights=masses)
-    conf = conf - com
-    conf_T = conf.transpose()
-
-    xs = conf[:, 0]
-    ys = conf[:, 1]
-    zs = conf[:, 2]
-    xx = np.average(ys * ys + zs * zs, weights=masses)
-    yy = np.average(xs * xs + zs * zs, weights=masses)
-    zz = np.average(xs * xs + ys * ys, weights=masses)
-    xy = np.average(-xs * ys, weights=masses)
-    xz = np.average(-xs * zs, weights=masses)
-    yz = np.average(-ys * zs, weights=masses)
-    tensor = np.array([
-        [xx, xy, xz],
-        [xy, yy, yz],
-        [xz, yz, zz]
-    ])
-
-    return com, tensor
 
 
 def get_conf(romol, idx):
@@ -186,17 +143,6 @@ def convergence(args):
                                          kb=50.0,
                                          b0=0.0)
 
-    pmi_restraint_fn = functools.partial(pmi_restraints_new,
-                                         params=None,
-                                         box=None,
-                                         lamb=None,
-                                         masses=combined_masses,
-                                         a_idxs=a_idxs,
-                                         b_idxs=b_idxs,
-                                         angle_force=100.0,
-                                         com_force=100.0
-                                         )
-
     # set up shape parameters
     prefactor = 2.7  # unitless
     shape_lamb = (4 * np.pi) / (3 * prefactor)  # unitless
@@ -221,7 +167,6 @@ def convergence(args):
 
     def restraint_fn(conf, lamb):
         return (1 - lamb) * com_restraint_fn(conf) + lamb * shape_restraint_fn(conf)
-        # return (1-lamb)*pmi_restraint_fn(conf) + lamb*shape_restraint_fn(conf)
 
     nrg_fns.append(restraint_fn)
 
