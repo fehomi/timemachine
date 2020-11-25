@@ -5,6 +5,7 @@ from jax.config import config;
 config.update("jax_enable_x64", True)
 
 import multiprocessing
+from tqdm import tqdm
 
 import jax
 import functools
@@ -197,7 +198,7 @@ def convergence(args):
     # re-seed since forking preserves the seeded state
     onp.random.seed(int.from_bytes(os.urandom(4), byteorder='little'))
 
-    for step in range(100000):
+    for step in tqdm(range(100000)):
 
         # uncomment if want to write out coordinates
         # if step % 1000 == 0:
