@@ -24,11 +24,6 @@ if(NOT EXISTS ${PYBIND_SRC_DIR})
   execute_process(COMMAND git clone --branch tm0.1 https://github.com/proteneer/pybind11.git ${PYBIND_SRC_DIR})
 endif()
 
-set(CUB_SRC_DIR cub)
-
-if(NOT EXISTS ${CUB_SRC_DIR})
-  execute_process(COMMAND git clone --depth 1 --branch 1.10.0 https://github.com/NVIDIA/cub.git ${CUB_SRC_DIR})
-endif()
 
 add_subdirectory(${CMAKE_CURRENT_BINARY_DIR}/${PYBIND_SRC_DIR})
 
@@ -65,7 +60,6 @@ pybind11_add_module(${LIBRARY_NAME} SHARED NO_EXTRAS
 
 include_directories(${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
 include_directories(src/kernels)
-include_directories(${CMAKE_CURRENT_BINARY_DIR}/${CUB_SRC_DIR})
 
 set_property(TARGET ${LIBRARY_NAME} PROPERTY CUDA_STANDARD 14)
 target_link_libraries(${LIBRARY_NAME} -lcurand -lcudart -lcudadevrt)
