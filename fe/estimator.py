@@ -76,6 +76,8 @@ def simulate(lamb, box, x0, v0, final_potentials, integrator, equil_steps, prod_
     for obs in du_dp_obs:
         grads.append(obs.avg_du_dp())
 
+    print("lambda", lamb, "means", bonded_mean, nonbonded_mean)
+
     return (bonded_mean, bonded_std), (nonbonded_mean, nonbonded_std), grads
 
 
