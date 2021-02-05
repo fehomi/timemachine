@@ -47,6 +47,11 @@ def simulate(lamb, box, x0, v0, final_potentials, integrator, equil_steps, prod_
         all_impls
     )
 
+    print("Initial energies")
+    for bp, u in zip(final_potentials, all_impls): 
+        du_dx, du_dl, u = u.execute(x0, box, lamb)
+        print(bp, "nrg", u, "max force", np.amax(np.linalg.norm(du_dx, axis=-1)))
+
     # equilibration
     for step in range(equil_steps):
         ctxt.step(lamb)
