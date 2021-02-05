@@ -47,6 +47,8 @@ def simulate(lamb, box, x0, v0, final_potentials, integrator, equil_steps, prod_
         all_impls
     )
 
+    print("X0", x0)
+
     print("Initial energies")
     for bp, u in zip(final_potentials, all_impls): 
         du_dx, du_dl, u = u.execute(x0, box, lamb)
