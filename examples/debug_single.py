@@ -335,6 +335,9 @@ M  END""", removeHs=False)
 
     complex_schedule, solvent_schedule = lambda_schedules
 
+    complex_schedule = np.concatenate([np.ones_like(complex_schedule), np.zeros_like(complex_schedule)])
+    solvent_schedule = np.concatenate([np.ones_like(solvent_schedule), np.zeros_like(solvent_schedule)])
+
     # build the protein system.
     complex_system, complex_coords, _, _, complex_box, _ = builders.build_protein_system('tests/data/hif2a_nowater_min.pdb')
     complex_box += np.eye(3)*0.1 # BFGS this later
