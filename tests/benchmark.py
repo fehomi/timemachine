@@ -238,5 +238,5 @@ def benchmark_hif2a(verbose):
 
 
 if __name__ == "__main__":
-    benchmark_dhfr(verbose=False)
-    benchmark_hif2a(verbose=False)
+    benchmark_dhfr(verbose=True)
+    benchmark_hif2a(verbose=True)

@@ -44,6 +44,12 @@ private:
 
     int *d_sorted_lambda_plane_idxs_;
     int *d_sorted_lambda_offset_idxs_;
+
+    RealType *d_box_real_;
+    RealType *d_scales_real_;
+    RealType *d_sorted_x_real_; //
+    RealType *d_sorted_p_real_; //
+
     double *d_sorted_x_; //
     double *d_sorted_p_; //
     unsigned long long *d_sorted_du_dx_; //

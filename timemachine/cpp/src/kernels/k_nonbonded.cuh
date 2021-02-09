@@ -121,6 +121,24 @@ void __global__ k_check_rebuild_coords(
 }
 
 
+template <typename SrcType, typename DstType>
+void __global__ k_static_cast(
+    const int N,
+    const SrcType * __restrict__ array,
+    DstType * __restrict__ sorted_array) {
+
+    int idx = blockIdx.x*blockDim.x + threadIdx.x;
+
+    if(idx >= N) {
+        return;
+    }
+
+    sorted_array[idx] = static_cast<DstType>(array[idx]);
+
+}
+
+
+
 template <typename RealType>
 void __global__ k_permute(
     const int N,
@@ -263,9 +281,9 @@ float __device__ __forceinline__ real_es_factor(float real_beta, float dij, floa
 template <typename RealType, bool COMPUTE_4D>
 void __global__ k_nonbonded_du_dx(
     const int N,
-    const double * __restrict__ coords,
-    const double * __restrict__ params, // [N]
-    const double * __restrict__ box,
+    const RealType * __restrict__ coords,
+    const RealType * __restrict__ params, // [N]
+    const RealType * __restrict__ box,
     const RealType lambda,
     const int * __restrict__ lambda_plane_idxs, // 0 or 1, shift
     const int * __restrict__ lambda_offset_idxs, // 0 or 1, how much we offset from the plane by cutoff
@@ -444,9 +462,9 @@ void __global__ k_nonbonded_du_dx(
 template <typename RealType>
 void __global__ k_nonbonded(
     const int N,
-    const double * __restrict__ coords,
-    const double * __restrict__ params, // [N]
-    const double * __restrict__ box,
+    const RealType * __restrict__ coords,
+    const RealType * __restrict__ params, // [N]
+    const RealType * __restrict__ box,
     const RealType lambda,
     const int * __restrict__ lambda_plane_idxs, // 0 or 1, shift
     const int * __restrict__ lambda_offset_idxs, // 0 or 1, how much we offset from the plane by cutoff
@@ -678,14 +696,14 @@ void __global__ k_nonbonded(
 template<typename RealType>
 void __global__ k_nonbonded_exclusions(
     const int E, // number of exclusions
-    const double *coords,
-    const double *params,
-    const double *box,
+    const RealType *coords,
+    const RealType *params,
+    const RealType *box,
     const RealType lambda,
     const int *lambda_plane_idxs, // 0 or 1, shift
     const int *lambda_offset_idxs, // 0 or 1, if we alolw this atom to be decoupled
     const int *exclusion_idxs, // [E, 2] pair-list of atoms to be excluded
-    const double *scales, // [E]
+    const RealType *scales, // [E]
     const RealType beta,
     const RealType cutoff,
     unsigned long long *du_dx,

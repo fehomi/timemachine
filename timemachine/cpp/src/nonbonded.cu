@@ -99,6 +99,11 @@ Nonbonded<RealType>::Nonbonded(
     gpuErrchk(cudaMalloc(&d_sort_keys_out_, N_*sizeof(d_sort_keys_out_)));
     gpuErrchk(cudaMalloc(&d_sort_vals_in_, N_*sizeof(d_sort_vals_in_)));
 
+    gpuErrchk(cudaMalloc(&d_scales_, E_*2*sizeof(*d_scales_real_)));
+    gpuErrchk(cudaMalloc(&d_box_real_, 3*3*sizeof(*d_box_real_)));
+    gpuErrchk(cudaMalloc(&d_sorted_x_real_, N_*3*sizeof(*d_sorted_x_real_)));
+    gpuErrchk(cudaMalloc(&d_sorted_p_real_, N_*3*sizeof(*d_sorted_p_real_)));
+
     // initialize hilbert curve
     std::vector<unsigned int> bin_to_idx(256*256*256);
     for(int i=0; i < 256; i++) {
@@ -172,6 +177,11 @@ Nonbonded<RealType>::~Nonbonded() {
     gpuErrchk(cudaFree(d_nblist_box_));
     gpuErrchk(cudaFree(d_rebuild_nblist_));
     gpuErrchk(cudaFreeHost(p_rebuild_nblist_));
+
+    gpuErrchk(cudaFree(d_box_real_));
+    gpuErrchk(cudaFree(d_scales_real_));
+    gpuErrchk(cudaFree(d_sorted_x_real_)); //
+    gpuErrchk(cudaFree(d_sorted_p_real_)); //
 };
 
 
@@ -337,6 +347,16 @@ void Nonbonded<RealType>::execute_device(
         gpuErrchk(cudaMemsetAsync(d_u_reduce_sum_, 0, 1*sizeof(*d_u_reduce_sum_), stream));
     }
 
+    // static cast to real to check perf
+
+    // sorted
+    k_static_cast<double, RealType><<<dimGrid, tpb, 0, stream>>>(N, d_sorted_x_, d_sorted_x_real_);
+    gpuErrchk(cudaPeekAtLastError());
+    k_static_cast<double, RealType><<<dimGrid, tpb, 0, stream>>>(N, d_sorted_p_, d_sorted_p_real_);
+    gpuErrchk(cudaPeekAtLastError());
+    k_static_cast<double, RealType><<<1, tpb, 0, stream>>>(N, d_box, d_box_real_);
+    gpuErrchk(cudaPeekAtLastError());
+
     if(d_du_dx && !d_du_dp && !d_du_dl && !d_u) {
 
         // split tiles into 3D and 4D
@@ -345,9 +365,9 @@ void Nonbonded<RealType>::execute_device(
         if(compute_4d_) {
             k_nonbonded_du_dx<RealType, true><<<p_ixn_count_[0], 32, 0, stream>>>(
                 N,
-                d_sorted_x_,
-                d_sorted_p_,
-                d_box,
+                d_sorted_x_real_,
+                d_sorted_p_real_,
+                d_box_real_,
                 lambda,
                 d_sorted_lambda_plane_idxs_,
                 d_sorted_lambda_offset_idxs_,
@@ -360,9 +380,9 @@ void Nonbonded<RealType>::execute_device(
         } else {
             k_nonbonded_du_dx<RealType, false><<<p_ixn_count_[0], 32, 0, stream>>>(
                 N,
-                d_sorted_x_,
-                d_sorted_p_,
-                d_box,
+                d_sorted_x_real_,
+                d_sorted_p_real_,
+                d_box_real_,
                 lambda,
                 d_sorted_lambda_plane_idxs_,
                 d_sorted_lambda_offset_idxs_,
@@ -378,9 +398,9 @@ void Nonbonded<RealType>::execute_device(
     } else {
         k_nonbonded<RealType><<<p_ixn_count_[0], 32, 0, stream>>>(
             N,
-            d_sorted_x_,
-            d_sorted_p_,
-            d_box,
+            d_sorted_x_real_,
+            d_sorted_p_real_,
+            d_box_real_,
             lambda,
             d_sorted_lambda_plane_idxs_,
             d_sorted_lambda_offset_idxs_,
@@ -413,19 +433,27 @@ void Nonbonded<RealType>::execute_device(
     // exclusions use the non-sorted version
     if(E_ > 0) {
 
+        k_static_cast<double, RealType><<<dimGrid, tpb, 0, stream>>>(N, d_x, d_sorted_x_real_);
+        gpuErrchk(cudaPeekAtLastError());
+        k_static_cast<double, RealType><<<dimGrid, tpb, 0, stream>>>(N, d_p, d_sorted_p_real_);
+        gpuErrchk(cudaPeekAtLastError());
+        dim3 dimGridScales((E_+32-1)/32, 2, 1);
+        k_static_cast<double, RealType><<<dimGridScales, tpb, 0, stream>>>(N, d_scales_, d_scales_real_);
+        gpuErrchk(cudaPeekAtLastError());
+
         const int tpb = 32;
         dim3 dimGridExclusions((E_+tpb-1)/tpb, 1, 1);
 
         k_nonbonded_exclusions<RealType><<<dimGridExclusions, tpb, 0, stream>>>(
             E_,
-            d_x,
-            d_p,
-            d_box,
+            d_sorted_x_real_,
+            d_sorted_p_real_,
+            d_box_real_,
             lambda,
             d_lambda_plane_idxs_,
             d_lambda_offset_idxs_,
             d_exclusion_idxs_,
-            d_scales_,
+            d_scales_real_,
             beta_,
             cutoff_,
             d_du_dx,
