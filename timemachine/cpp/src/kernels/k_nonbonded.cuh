@@ -360,10 +360,10 @@ void __global__ k_nonbonded_du_dx(
         RealType d2ij = delta_x*delta_x + delta_y*delta_y + delta_z*delta_z;
 
         // compile time evaluates to either 0 or 1
-        if(COMPUTE_4D) {
-            RealType delta_w = (lambda_plane_i - lambda_plane_j)*cutoff + (lambda_offset_i - lambda_offset_j)*real_lambda*cutoff;
-            d2ij += delta_w*delta_w;
-        }
+        // if(COMPUTE_4D) {
+        //     RealType delta_w = (lambda_plane_i - lambda_plane_j)*cutoff + (lambda_offset_i - lambda_offset_j)*real_lambda*cutoff;
+        //     d2ij += delta_w*delta_w;
+        // }
 
         // (ytz): note that d2ij must be *strictly* less than cutoff_squared. This is because we set the
         // non-interacting atoms to exactly cutoff*cutoff. This ensures that atoms who's 4th dimension
