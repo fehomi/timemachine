@@ -354,7 +354,7 @@ void Nonbonded<RealType>::execute_device(
     gpuErrchk(cudaPeekAtLastError());
     k_static_cast<double, RealType><<<dimGrid, tpb, 0, stream>>>(N, d_sorted_p_, d_sorted_p_real_);
     gpuErrchk(cudaPeekAtLastError());
-    k_static_cast<double, RealType><<<1, tpb, 0, stream>>>(N, d_box, d_box_real_);
+    k_static_cast<double, RealType><<<1, tpb, 0, stream>>>(9, d_box, d_box_real_);
     gpuErrchk(cudaPeekAtLastError());
 
     if(d_du_dx && !d_du_dp && !d_du_dl && !d_u) {
@@ -438,7 +438,7 @@ void Nonbonded<RealType>::execute_device(
         k_static_cast<double, RealType><<<dimGrid, tpb, 0, stream>>>(N, d_p, d_sorted_p_real_);
         gpuErrchk(cudaPeekAtLastError());
         dim3 dimGridScales((E_+32-1)/32, 2, 1);
-        k_static_cast<double, RealType><<<dimGridScales, tpb, 0, stream>>>(N, d_scales_, d_scales_real_);
+        k_static_cast<double, RealType><<<dimGridScales, tpb, 0, stream>>>(E_, d_scales_, d_scales_real_);
         gpuErrchk(cudaPeekAtLastError());
 
         const int tpb = 32;
