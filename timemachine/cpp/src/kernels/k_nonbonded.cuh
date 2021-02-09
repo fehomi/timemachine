@@ -124,8 +124,8 @@ void __global__ k_check_rebuild_coords(
 template <typename SrcType, typename DstType>
 void __global__ k_static_cast(
     const int N,
-    const SrcType * __restrict__ array,
-    DstType * __restrict__ sorted_array) {
+    const SrcType * __restrict__ src_array,
+    DstType * __restrict__ dst_array) {
 
     int idx = blockIdx.x*blockDim.x + threadIdx.x;
 
@@ -133,7 +133,7 @@ void __global__ k_static_cast(
         return;
     }
 
-    sorted_array[idx] = static_cast<DstType>(array[idx]);
+    dst_array[idx] = static_cast<DstType>(src_array[idx]);
 
 }
 
