@@ -220,6 +220,12 @@ class NonbondedCustomOpWrapper(CustomOpWrapper):
     def get_lambda_offset_idxs(self):
         return self.args[3]
 
+    def set_lambda_plane_idxs(self, arg):
+        self.args[2] = arg
+
+    def set_lambda_offset_idxs(self, arg):
+        self.args[3] = arg
+
     def get_beta(self):
         return self.args[4]
 

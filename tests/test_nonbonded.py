@@ -24,6 +24,7 @@ from md import builders
 from hilbertcurve.hilbertcurve import HilbertCurve
 from fe.utils import to_md_units
 
+
 from ff.handlers import openmm_deserializer
 from simtk.openmm import app
 
@@ -234,9 +235,7 @@ class TestNonbondedDHFR(GradientTest):
                     precision=precision
                 )
 
-
-    @unittest.skip("benchmark-only")
-    def test_benchmark(self):
+    def test_benchmark_3d(self):
         """
         This is mainly for benchmarking nonbonded computations on the initial state. 
         """
@@ -252,6 +251,32 @@ class TestNonbondedDHFR(GradientTest):
         for _ in range(100):
 
             impl.execute_du_dx(host_conf, self.nonbonded_fn.params, self.box, self.lamb)
+
+    def test_benchmark_4d(self):
+        """
+        This is mainly for benchmarking nonbonded computations on the initial state. 
+        """
+
+        N = self.host_conf.shape[0]
+
+        host_conf = self.host_conf[:N]
+
+        precision = np.float32
+
+        fn = copy.deepcopy(self.nonbonded_fn)
+
+        lambda_plane_idxs = np.random.randint(low=0, high=2, size=N, dtype=np.int32)
+        lambda_offset_idxs = np.random.randint(low=0, high=2, size=N, dtype=np.int32)
+
+        fn.set_lambda_plane_idxs(lambda_plane_idxs)
+        fn.set_lambda_offset_idxs(lambda_offset_idxs)
+
+        impl = fn.unbound_impl(np.float32)
+
+        for _ in range(100):
+
+            impl.execute_du_dx(host_conf, self.nonbonded_fn.params, self.box, self.lamb)
+
 
 class TestNonbondedWater(GradientTest):
 
