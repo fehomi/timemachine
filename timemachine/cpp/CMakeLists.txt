@@ -20,15 +20,8 @@ endif()
 set(LIBRARY_NAME custom_ops)
 set(PYBIND_SRC_DIR pybind11)
 
-
 if(NOT EXISTS ${PYBIND_SRC_DIR})
   execute_process(COMMAND git clone --branch v2.6 https://github.com/pybind/pybind11.git ${PYBIND_SRC_DIR})
-endif()
-
-set(CUB_SRC_DIR cub)
-
-if(NOT EXISTS ${CUB_SRC_DIR})
-  execute_process(COMMAND git clone --depth 1 --branch 1.10.0 https://github.com/NVIDIA/cub.git ${CUB_SRC_DIR})
 endif()
 
 add_subdirectory(${CMAKE_CURRENT_BINARY_DIR}/${PYBIND_SRC_DIR})
