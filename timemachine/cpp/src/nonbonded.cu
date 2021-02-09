@@ -99,7 +99,7 @@ Nonbonded<RealType>::Nonbonded(
     gpuErrchk(cudaMalloc(&d_sort_keys_out_, N_*sizeof(d_sort_keys_out_)));
     gpuErrchk(cudaMalloc(&d_sort_vals_in_, N_*sizeof(d_sort_vals_in_)));
 
-    gpuErrchk(cudaMalloc(&d_scales_, E_*2*sizeof(*d_scales_real_)));
+    gpuErrchk(cudaMalloc(&d_scales_real_, E_*2*sizeof(*d_scales_real_)));
     gpuErrchk(cudaMalloc(&d_box_real_, 3*3*sizeof(*d_box_real_)));
     gpuErrchk(cudaMalloc(&d_sorted_x_real_, N_*3*sizeof(*d_sorted_x_real_)));
     gpuErrchk(cudaMalloc(&d_sorted_p_real_, N_*3*sizeof(*d_sorted_p_real_)));

@@ -128,16 +128,16 @@ void __global__ k_static_cast(
     DstType * __restrict__ dst_array) {
 
     int idx = blockIdx.x*blockDim.x + threadIdx.x;
+    int stride = gridDim.y;
+    int stride_idx = blockIdx.y;
 
     if(idx >= N) {
         return;
     }
 
-    dst_array[idx] = static_cast<DstType>(src_array[idx]);
+    dst_array[idx*stride+stride_idx] = static_cast<DstType>(src_array[idx*stride+stride_idx]);
 
 }
-
-
 
 template <typename RealType>
 void __global__ k_permute(
