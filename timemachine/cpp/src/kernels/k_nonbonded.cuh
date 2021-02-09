@@ -266,11 +266,11 @@ void __global__ k_nonbonded_du_dx(
     const double * __restrict__ coords,
     const double * __restrict__ params, // [N]
     const double * __restrict__ box,
-    const double lambda,
+    const RealType lambda,
     const int * __restrict__ lambda_plane_idxs, // 0 or 1, shift
     const int * __restrict__ lambda_offset_idxs, // 0 or 1, how much we offset from the plane by cutoff
-    const double beta,
-    const double cutoff,
+    const RealType beta,
+    const RealType cutoff,
     const int * __restrict__ ixn_tiles,
     const unsigned int * __restrict__ ixn_atoms,
     unsigned long long * __restrict__ du_dx) {
@@ -325,8 +325,6 @@ void __global__ k_nonbonded_du_dx(
 
     RealType cutoff_squared = cutoff*cutoff;
 
-    RealType real_cutoff = static_cast<RealType>(cutoff);
-
     RealType real_lambda = static_cast<RealType>(lambda);
     RealType real_beta = static_cast<RealType>(beta);
 
@@ -363,7 +361,7 @@ void __global__ k_nonbonded_du_dx(
 
         // compile time evaluates to either 0 or 1
         if(COMPUTE_4D) {
-            RealType delta_w = (lambda_plane_i - lambda_plane_j)*real_cutoff + (lambda_offset_i - lambda_offset_j)*real_lambda*real_cutoff;
+            RealType delta_w = (lambda_plane_i - lambda_plane_j)*cutoff + (lambda_offset_i - lambda_offset_j)*real_lambda*cutoff;
             d2ij += delta_w*delta_w;
         }
 
@@ -449,11 +447,11 @@ void __global__ k_nonbonded(
     const double * __restrict__ coords,
     const double * __restrict__ params, // [N]
     const double * __restrict__ box,
-    const double lambda,
+    const RealType lambda,
     const int * __restrict__ lambda_plane_idxs, // 0 or 1, shift
     const int * __restrict__ lambda_offset_idxs, // 0 or 1, how much we offset from the plane by cutoff
-    const double beta,
-    const double cutoff,
+    const RealType beta,
+    const RealType cutoff,
     const int * __restrict__ ixn_tiles,
     const unsigned int * __restrict__ ixn_atoms,
     unsigned long long * __restrict__ du_dx,
@@ -683,13 +681,13 @@ void __global__ k_nonbonded_exclusions(
     const double *coords,
     const double *params,
     const double *box,
-    const double lambda,
+    const RealType lambda,
     const int *lambda_plane_idxs, // 0 or 1, shift
     const int *lambda_offset_idxs, // 0 or 1, if we alolw this atom to be decoupled
     const int *exclusion_idxs, // [E, 2] pair-list of atoms to be excluded
     const double *scales, // [E]
-    const double beta,
-    const double cutoff,
+    const RealType beta,
+    const RealType cutoff,
     unsigned long long *du_dx,
     unsigned long long *du_dp,
     unsigned long long *du_dl_buffer,
