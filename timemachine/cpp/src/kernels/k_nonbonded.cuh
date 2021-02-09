@@ -325,7 +325,7 @@ void __global__ k_nonbonded_du_dx(
 
     RealType cutoff_squared = cutoff*cutoff;
 
-    RealType cutoff = static_cast<RealType>(cutoff);
+    RealType real_cutoff = static_cast<RealType>(cutoff);
 
     RealType real_lambda = static_cast<RealType>(lambda);
     RealType real_beta = static_cast<RealType>(beta);
