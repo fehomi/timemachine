@@ -178,6 +178,14 @@ class RelativeFreeEnergy(BaseFreeEnergy):
 
         return final_potentials, final_params, combined_masses, combined_coords
 
+    def check_vacuum_forces(self, ff_params, lambda_schedule):
+        final_potentials, final_params, combined_masses, combined_coords = self.prepare_vacuum_edge(ff_params)
+
+        for lam in lambda_schedule:
+            # TODO: compute force using final_potentials on combined_coords at lambda=lam
+            raise (NotImplementedError)
+
+
     def prepare_host_edge(self, ff_params, host_system, host_coords):
         """
         Prepares the host-edge system
