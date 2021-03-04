@@ -72,7 +72,10 @@ def truncated_step(
     # default search direction: SGD
     if search_direction is None:
         search_direction = - grad
-    assert (np.linalg.norm(search_direction) > 0) # if this vector is all zeros, doesn't make sense to proceed
+
+    # if given a zero-norm search direction don't try to start line-search
+    if np.linalg.norm(search_direction) == 0:
+        return np.zeros_like(search_direction)
 
     # default local surrogate model: linear
     f_prime = _taylor_first_order(x, f_x, grad)
