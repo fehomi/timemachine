@@ -332,7 +332,7 @@ if __name__ == "__main__":
                 update_mask = increment != 0
 
                 # TODO: replace with a function that knows what to report about each handle type
-                if sum(update_mask) > 0:
+                if np.sum(update_mask) > 0:
                     print(f'updated {int(np.sum(update_mask))} params by between {np.min(increment[update_mask]):.4f} and {np.max(increment[update_mask])}')
                 else:
                     print("didn't update any params this iteration!")
