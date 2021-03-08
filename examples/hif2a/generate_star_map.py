@@ -1,63 +1,41 @@
 # Construct a star map for the fep-benchmark hif2a ligands
-
+import sys
+from collections import defaultdict
+from argparse import ArgumentParser
 from pathlib import Path
 from rdkit import Chem
 
 from pickle import dump
 
+import timemachine
+from timemachine.parser import TimemachineConfig
+
 from fe import topology
 from fe.utils import convert_uIC50_to_kJ_per_mole
-
-root = Path(__file__).absolute().parent.parent.parent
+from fe.free_energy import RelativeFreeEnergy
+from fe.topology import AtomMappingError
 
 # 0. Get force field
 from ff import Forcefield
 from ff.handlers.deserialize import deserialize_handlers
 
+from rdkit.Chem import rdFMCS
+
 import numpy as np
-from fe.atom_mapping import get_core_by_geometry
-from fe.atom_mapping import get_core_by_matching, get_core_by_mcs, get_core_by_smarts, mcs_map
+from fe.atom_mapping import (
+    get_core_by_geometry,
+    get_core_by_matching,
+    get_core_by_mcs,
+    get_core_by_smarts,
+    mcs_map
+)
 
-path_to_ff = str(root.joinpath('ff/params/smirnoff_1_1_0_ccc.py'))
-with open(path_to_ff) as f:
-    ff_handlers = deserialize_handlers(f.read())
-forcefield = Forcefield(ff_handlers)
-
-# 1. Get ligands
-path_to_ligands = str(root.joinpath('datasets/fep-benchmark/hif2a/ligands.sdf'))
-
-# locations relative to example folder
-path_to_results = Path(__file__).parent
-path_to_transformations = str(path_to_results.joinpath('relative_transformations.pkl'))
-
-supplier = Chem.SDMolSupplier(path_to_ligands, removeHs=False)
-mols = []
-for mol in supplier:
-    mols.append(mol)
-
-# 2. Identify ligand subset that shares a common substructure
-
-# SMARTS courtesy of YTZ (Jan 26, 2021)
-bicyclic_smarts_pattern = '[*]~1~[*]~[*]~2~[*]~[*]~[*]~[*](~[#8]~[*]~3~[*]~[*]~[*]~[*]~[*]~3)~[*]~2~[*]~1'
-bicyclic_query_mol = Chem.MolFromSmarts(bicyclic_smarts_pattern)
-
-# filter matches
-has_bicycle = lambda mol: len(mol.GetSubstructMatches(bicyclic_query_mol)) == 1
-mols_with_core_1 = list(filter(has_bicycle, mols))
-# note "== 1" : want to exclude mol id 266 -- which matches bicyclic_query twice -- from mols_with_core_1
-mols_with_core_2 = list(filter(lambda mol: not has_bicycle(mol), mols))
-
-
-# Draw.MolsToGridImage(mols_with_core_1, molsPerRow=5, subImgSize=(200,200))
-# TODO: save this image...
+# Get the root off of the timemachine install
+root = Path(timemachine.__file__).absolute().parent
 
 
 def get_mol_id(mol):
     return mol.GetProp('ID')
-
-
-from fe.free_energy import RelativeFreeEnergy
-from fe.topology import AtomMappingError
 
 
 def _compute_label(mol_a, mol_b):
@@ -68,7 +46,7 @@ def _compute_label(mol_a, mol_b):
         label_dG_a = convert_uIC50_to_kJ_per_mole(float(mol_a.GetProp(prop_name)))
         label_dG_b = convert_uIC50_to_kJ_per_mole(float(mol_b.GetProp(prop_name)))
     except KeyError as e:
-        raise (RuntimeError(f"Couldn't access IC50 label for either mol A or mol B, looking at {prop_name}"))
+        raise RuntimeError(f"Couldn't access IC50 label for either mol A or mol B, looking at {prop_name}")
 
     label = label_dG_b - label_dG_a
 
@@ -80,8 +58,6 @@ def transformation_size(rfe: RelativeFreeEnergy):
     n_A, n_B, n_MCS = rfe.mol_a.GetNumAtoms(), rfe.mol_b.GetNumAtoms(), len(rfe.core)
     return (n_A + n_B) - 2 * n_MCS
 
-
-from rdkit.Chem import rdFMCS
 
 def get_core_by_permissive_mcs(mol_a, mol_b):
     mcs_result = rdFMCS.FindMCS(
@@ -104,10 +80,6 @@ def get_core_by_permissive_mcs(mol_a, mol_b):
 
     return core
 
-
-#core_2_smarts = '[*]1~[*]~[*]~[*]~[*]~[*]1~[#8]~[*]2~[*]~[*]~[*](~[#16])~[*]~[*]2' # zero valid still!
-# try removing any match in the sulfur-containing group?
-core_2_smarts = '[*]1~[*]~[*]~[*]~[*]~[*]1~[#8]~[*]2~[*]~[*]~[*]~[*]~[*]2'
 
 def _get_match(mol, query):
     matches = mol.GetSubstructMatches(query)
@@ -149,73 +121,73 @@ def generate_star(hub, spokes, transformation_size_threshold=2, core_strategy='g
             print(e)
             error_transformations.append((hub, spoke, core))
 
-    with open(path_to_results.joinpath('error_transformations.pkl'), 'wb') as f:
-        dump(error_transformations, f)
-
     print(f'total # of edges that encountered atom mapping errors: {len(error_transformations)}')
 
     # filter to keep just the edges with very small number of atoms changing
     easy_transformations = [rfe for rfe in transformations if transformation_size(rfe) <= transformation_size_threshold]
 
-    return easy_transformations
+    return easy_transformations, error_transformations
 
+def mol_matches_core(mol, core_query) -> bool:
+    res = mol.GetSubstructMatches(core_query)
+    if len(res) > 1:
+        mol_id = get_mol_id(mol)
+        print(f"Mol {mol_id} matched core multiple times")
+    return len(res) == 1
 
-# add edges from each core
+if __name__ == "__main__":
+    parser = ArgumentParser(description="Generate FEP edge map")
+    parser.add_argument("config", help="YAML configuration")
+    args = parser.parse_args()
+    config = TimemachineConfig.from_yaml(args.config)
+    if config.map_generation is None:
+        print("No map generation configuration provided")
+        sys.exit(1)
+    map_config = config.map_generation
 
-transformation_size_threshold = 3
+    with open(map_config.forcefield) as f:
+        ff_handlers = deserialize_handlers(f.read())
+    forcefield = Forcefield(ff_handlers)
 
-# hard-coded hub = mol ID 165 for core 1
-mol_inds_1 = list(map(get_mol_id, mols_with_core_1))
-hub_index_1 = mol_inds_1.index('165')
+    mols = []
+    for lig_path in map_config.ligands:
+        supplier = Chem.SDMolSupplier(lig_path, removeHs=False)
+        mols.extend(list(supplier))
 
-spokes_1 = list(mols_with_core_1)
-hub_1 = spokes_1.pop(hub_index_1)
+    # In the future hopefully we can programmatically find the cores rather specifying
+    cores = map_config.cores
 
-core_1_edges = generate_star(hub_1, spokes_1, transformation_size_threshold)
-print(f'# core 1 edges: {len(core_1_edges)}')
+    core_sets = defaultdict(list)
+    for core in cores:
+        core_query = Chem.MolFromSmarts(core)
+        for i in range(len(mols)):
+            mol = mols[i]
+            if mol is None:
+                continue
+            if mol_matches_core(mol, core_query):
+                core_sets[core].append(mol)
+                mols[i] = None
+    if any(mols):
+        print("Not all mols matched the provided cores")
+        leftover = [get_mol_id(mol) for mol in filter(None, mols)]
+        print(f"Mols that didn't match cores: {leftover}")
 
-# add second core, filtered again by transformation difficulty
+    transformation_size_threshold = 3
+    all_edges = []
+    hubs_specified = map_config.hubs is not None and len(map_config.cores) == len(map_config.hubs)
+    for i, core in enumerate(cores):
+        mols = core_sets[core]
+        if hubs_specified and map_config.hubs[i]:
+            hub_idx = [get_mol_id(mol) for mol in mols].index(map_config.hubs[i])
+            hub = mols[hub_idx]
+            mols.pop(hub_idx)
+        else:
+            raise NotImplementedError("Requires a hub right now")
+        edges, errors = generate_star(hub, mols, transformation_size_threshold=transformation_size_threshold, core_strategy=map_config.strategy)
+        all_edges.extend(edges)
+        with open(f"core_{i}_error_transformations.pkl", "wb") as f:
+            dump(errors, f)
 
-# hard-coded hub = mol ID 41
-core_2_query_mol = Chem.MolFromSmarts(core_2_smarts)
-has_core_2 = lambda mol: len(mol.GetSubstructMatches(core_2_query_mol)) > 0
-mols_with_core_2 = list(filter(has_core_2, mols_with_core_2)) # filter outlier
-mol_inds_2 = list(map(get_mol_id, mols_with_core_2))
-hub_index_2 = mol_inds_2.index('41') # everything breaks with this as the hub, although it was identified as the best hub in the previous step
-
-spokes_2 = list(mols_with_core_2)
-hub_2 = spokes_2.pop(hub_index_2)
-
-core_2_edges_dict = dict()
-core_2_strategies = ['geometry', 'any_mcs', 'smarts_core_2']
-
-for strategy in core_2_strategies:
-    core_2_edges_dict[strategy] = generate_star(hub_2, spokes_2, transformation_size_threshold, core_strategy=strategy)
-
-# see what gets the most edges that pass tests...
-max_edges = 0
-best_core_2_edges = core_2_edges_dict[core_2_strategies[0]]
-for strategy in core_2_strategies:
-    n_edges = len(core_2_edges_dict[strategy])
-    print(f'# core 2 edges using {strategy} strategy: {n_edges}')
-    if n_edges > max_edges:
-        max_edges = n_edges
-        best_core_2_edges = core_2_edges_dict[strategy]
-
-# consistency with core 1
-core_2_edges = core_2_edges_dict['geometry']
-
-
-# [incomplete] let's maybe also try looping over all choices of possible hub, and see which gives us the most valid edges...
-#for i in range(len(mols_with_core_2)):
-#    spokes_2 = list(mols_with_core_2)
-#    hub_2 = spokes_1.pop(i)
-#    core_2_edges = generate_star(hub_2, spokes_2, transformation_size_threshold, core_strategy='smarts_core_2')
-
-
-# combine
-all_edges = core_1_edges + core_2_edges
-
-# serialize
-with open(path_to_transformations, 'wb') as f:
-    dump(all_edges, f)
+    # serialize
+    with open(map_config.output, 'wb') as f:
+        dump(all_edges, f)

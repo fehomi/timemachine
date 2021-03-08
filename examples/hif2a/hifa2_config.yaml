@@ -1,0 +1,15 @@
+---
+map-generation:
+  strategy: geometry
+  protein: datasets/fep-benchmark/hif2a/5tbm_prepared.pdb
+  forcefield: ff/params/smirnoff_1_1_0_ccc.py
+  ligands:
+    - datasets/fep-benchmark/hif2a/ligands.sdf
+  # Cores and hubs must be in the same order. 
+  cores:
+    - "[*]~1~[*]~[*]~2~[*]~[*]~[*]~[*](~[#8]~[*]~3~[*]~[*]~[*]~[*]~[*]~3)~[*]~2~[*]~1"
+    - "[*]1~[*]~[*]~[*]~[*]~[*]1~[#8]~[*]2~[*]~[*]~[*]~[*]~[*]2"
+  hubs:
+    - "165"
+    - "41"
+  output: relative_transformations.pkl
