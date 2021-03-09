@@ -135,6 +135,48 @@ def mol_matches_core(mol, core_query) -> bool:
         print(f"Mol {mol_id} matched core multiple times")
     return len(res) == 1
 
+def smarts_comparison(smarts: str):
+    core_query = Chem.MolFromSmarts(smarts)
+
+    def matching_mols(mols):
+        matches = []
+        leftover = []
+        for mol in mols:
+            res = mol.GetSubstructMatches(core_query)
+            if len(res) > 1:
+                mol_id = get_mol_id(mol)
+                print(f"Mol {mol_id} matched core multiple times")
+            if len(res) == 1:
+                matches.append(mol)
+            else:
+                leftover.append(mol)
+        return matches, leftover
+    return matching_mols
+
+
+core_generation_methods = {
+    "smarts": smarts_comparison,
+}
+
+def manual_hub_selection(property: str, value: str):
+    def find_hub(mols):
+        hub = None
+        idx = -1
+        for i, mol in enumerate(mols):
+            if mol.GetProp(property) == value:
+                idx = i
+                hub = mol
+                break
+        if hub is not None:
+            mols.pop(idx)
+        return hub, mols
+    return find_hub
+
+
+network_generation_methods = {
+    "manual": manual_hub_selection,
+}
+
 if __name__ == "__main__":
     parser = ArgumentParser(description="Generate FEP edge map")
     parser.add_argument("config", help="YAML configuration")
@@ -157,36 +199,34 @@ if __name__ == "__main__":
     # In the future hopefully we can programmatically find the cores rather specifying
     cores = map_config.cores
 
-    core_sets = defaultdict(list)
-    for core in cores:
-        core_query = Chem.MolFromSmarts(core)
-        for i in range(len(mols)):
-            mol = mols[i]
-            if mol is None:
-                continue
-            if mol_matches_core(mol, core_query):
-                core_sets[core].append(mol)
-                mols[i] = None
-    if any(mols):
+    core_sets = {}
+    for i, core in enumerate(cores):
+        method = core.pop("method")
+        if method not in core_generation_methods:
+            print(f"Unknown core method: {method}")
+            sys.exit(1)
+        core_method = core_generation_methods[method](**core)
+        # Returns a match set and those that didn't match a core
+        core_sets[i], mols = core_method(mols)
+
+    if len(mols) > 1:
         print("Not all mols matched the provided cores")
-        leftover = [get_mol_id(mol) for mol in filter(None, mols)]
+        leftover = [get_mol_id(mol) for mol in mols if mol is not None]
         print(f"Mols that didn't match cores: {leftover}")
 
-    transformation_size_threshold = 3
     all_edges = []
-    hubs_specified = map_config.hubs is not None and len(map_config.cores) == len(map_config.hubs)
-    for i, core in enumerate(cores):
-        mols = core_sets[core]
-        if hubs_specified and map_config.hubs[i]:
-            hub_idx = [get_mol_id(mol) for mol in mols].index(map_config.hubs[i])
-            hub = mols[hub_idx]
-            mols.pop(hub_idx)
-        else:
-            raise NotImplementedError("Requires a hub right now")
-        edges, errors = generate_star(hub, mols, transformation_size_threshold=transformation_size_threshold, core_strategy=map_config.strategy)
+    for i, mols in core_sets.items():
+        method = map_config.networks[i].pop("method")
+        if method not in network_generation_methods:
+            print(f"Unknown network method: {method}")
+            sys.exit(1)
+        hub_method = network_generation_methods[method](**map_config.networks[i])
+        hub, mols = hub_method(mols)
+        edges, errors = generate_star(hub, mols, forcefield, transformation_size_threshold=map_config.transformation_threshold, core_strategy=map_config.atom_mapping_strategy)
         all_edges.extend(edges)
         with open(f"core_{i}_error_transformations.pkl", "wb") as f:
             dump(errors, f)
+        print(f"Core {i} had {len(edges)} edges and {len(errors)} errors")
 
     # serialize
     with open(map_config.output, 'wb') as f:
